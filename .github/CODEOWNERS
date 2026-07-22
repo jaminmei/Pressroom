@@ -1,0 +1,13 @@
+# Default review ownership for the public repository.
+* @jaminmei @ricoyudog
+
+# Changes to release boundaries, licenses, assets, and CI require maintainer review.
+/.github/ @jaminmei @ricoyudog
+/LICENSE @jaminmei @ricoyudog
+/LICENSES/ @jaminmei @ricoyudog
+/THIRD_PARTY_NOTICES.md @jaminmei @ricoyudog
+/ASSETS.md @jaminmei @ricoyudog
+/TRADEMARKS.md @jaminmei @ricoyudog
+/engines/text/ @jaminmei @ricoyudog
+/scripts/check-public-boundary.py @jaminmei @ricoyudog
+/scripts/public-binary-assets.txt @jaminmei @ricoyudog

@@ -1,0 +1,1 @@
+# Models Directory\n\nThis directory stores OCR model files.\nModels will be downloaded automatically on first run or can be pre-loaded.\n\n**Note:** Model files are large and should not be committed to git.

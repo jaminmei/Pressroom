@@ -1,0 +1,64 @@
+{
+  "version": "1.0.0",
+  "description": "Layout Detection model configuration mapping",
+  "models": {
+    "ppstructure_v2": {
+      "display_name": "PP-StructureV2 (PaddleOCR)",
+      "description": "PaddlePaddle document layout analysis",
+      "supported_languages": ["ch", "en"],
+      "model_files": {
+        "picodet_lcnet_x1_0": {
+          "display_name": "PicoDet-LCNet x1.0",
+          "description": "Lightweight model for general documents",
+          "url": "https://paddleocr.bj.bcebos.com/ppstructure/models/layout/picodet_lcnet_x1_0_layout_infer.tar",
+          "layout_types": {
+            "ch": ["Text", "Title", "Figure", "Figure_caption", "Table", "Table_caption", "Header", "Footer", "Reference", "Equation"],
+            "en": ["Text", "Title", "Figure", "Table", "Caption", "Header", "Footer", "Reference", "Equation"]
+          }
+        },
+        "picodet_lcnet_x1_25": {
+          "display_name": "PicoDet-LCNet x1.25",
+          "description": "Higher accuracy model for complex documents",
+          "url": "https://paddleocr.bj.bcebos.com/ppstructure/models/layout/picodet_lcnet_x1_25_layout_infer.tar",
+          "layout_types": {
+            "ch": ["Text", "Title", "Figure", "Figure_caption", "Table", "Table_caption", "Header", "Footer", "Reference", "Equation"],
+            "en": ["Text", "Title", "Figure", "Table", "Caption", "Header", "Footer", "Reference", "Equation"]
+          }
+        }
+      }
+    },
+    "doclayout_yolo": {
+      "display_name": "DocLayout-YOLO",
+      "description": "YOLO-based document layout detection",
+      "supported_languages": ["universal"],
+      "model_files": {
+        "doclayout_yolo_docstructbench": {
+          "display_name": "DocStructBench",
+          "description": "Trained on DocStructBench dataset",
+          "url": null,
+          "layout_types": {
+            "universal": ["Title", "Text", "Abandon", "Figure", "Figure_caption", "Table", "Table_caption", "Header", "Footer", "Reference", "Equation"]
+          }
+        }
+      }
+    },
+    "layoutlmv3": {
+      "display_name": "LayoutLMv3",
+      "description": "Microsoft LayoutLMv3 for document understanding",
+      "supported_languages": ["universal"],
+      "model_files": {
+        "base": {
+          "display_name": "LayoutLMv3 Base",
+          "description": "Base model for document layout",
+          "url": null,
+          "layout_types": {
+            "universal": ["Text", "Title", "List", "Table", "Figure"]
+          }
+        }
+      }
+    }
+  },
+  "default_model": "ppstructure_v2",
+  "default_model_file": "picodet_lcnet_x1_0",
+  "default_language": "ch"
+}

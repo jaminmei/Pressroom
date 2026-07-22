@@ -1,0 +1,18 @@
+# Image Rotation Engine Requirements
+# Web framework
+fastapi>=0.139.2
+uvicorn[standard]>=0.27.0
+gunicorn>=22.0.0
+
+# Image processing
+opencv-python-headless==4.9.0.80
+pillow>=12.3.0
+scikit-image==0.22.0
+numpy<2.0
+
+# Data validation
+pydantic>=2.5.3
+python-multipart>=0.0.31
+
+# HTTP client
+httpx>=0.27.0

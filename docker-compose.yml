@@ -1,0 +1,504 @@
+# docker-compose.yml for Document Conversion Engines
+#
+# Profile-based deployment:
+#   core      - Local development (no DB) - 8 engines only
+#   standard  - Public application (with UI + API + DB) - core + frontend + backend + postgres
+#   full      - Full stack environment - standard + redis + celery-worker
+#
+# Usage:
+#   docker compose --profile core up -d          # Local dev (engines only)
+#   docker compose --profile standard up -d      # Standard public deployment
+#   docker compose --profile full up -d          # Full stack (with redis)
+#   docker compose logs -f <service>
+#
+# Services:
+#   - ocr-engine:     RapidOCR for text extraction from images
+#   - vlm-engine:     OpenAI-compatible vision model adapter
+#   - text-engine:    Plain text and HTML processing
+#   - markitdown:     Multi-format document conversion (PDF, DOCX, etc.)
+#   - docling:        Structured document conversion
+#   - layout:         Document layout detection
+#   - enhancement:    Image enhancement
+#   - rotation:       Image orientation correction
+#   - frontend:       React + Vite frontend served by Nginx reverse proxy
+#   - backend:        FastAPI backend service (profile: standard, full)
+#   - postgres:       PostgreSQL database (profile: standard, full)
+#   - redis:          Redis cache/broker (profile: full)
+#   - celery-worker:  Celery worker service (profile: full)
+
+x-backend-runtime: &backend_runtime
+  build:
+    context: .
+    dockerfile: Dockerfile.backend
+  image: docconv-backend-runtime:local
+  volumes:
+    - doc-conv-storage:/app/storage
+
+x-engine-storage: &engine_storage
+  volumes:
+    - doc-conv-storage:/app/storage:ro
+
+services:
+  # === OCR Engine ===
+  ocr-engine:
+    <<: *engine_storage
+    build:
+      context: ./engines/ocr
+      dockerfile: Dockerfile
+    profiles:
+      - core
+      - standard
+      - full
+    ports:
+      - "127.0.0.1:8002:8080"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    mem_limit: 2g
+    memswap_limit: 3g
+    networks:
+      - doc-conv-network
+    restart: unless-stopped
+
+  # === VLM Engine (request-scoped OpenAI-compatible adapter) ===
+  vlm-engine:
+    <<: *engine_storage
+    build:
+      context: ./engines/vlm
+      dockerfile: Dockerfile
+    profiles:
+      - core
+      - standard
+      - full
+    ports:
+      - "127.0.0.1:8003:8080"
+    environment:
+      - PROVIDER_ALLOW_PRIVATE_HOSTS=${PROVIDER_ALLOW_PRIVATE_HOSTS:-true}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    mem_limit: 512m
+    memswap_limit: 768m
+    networks:
+      - doc-conv-network
+    restart: unless-stopped
+
+  # === Text Engine ===
+  text-engine:
+    <<: *engine_storage
+    build:
+      context: ./engines/text
+      dockerfile: Dockerfile
+    profiles:
+      - core
+      - standard
+      - full
+    ports:
+      - "127.0.0.1:8004:8080"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    mem_limit: 256m
+    memswap_limit: 384m
+    networks:
+      - doc-conv-network
+    restart: unless-stopped
+
+  # === MarkItDown Engine ===
+  markitdown-engine:
+    <<: *engine_storage
+    build:
+      context: ./engines/markitdown
+      dockerfile: Dockerfile
+    profiles:
+      - core
+      - standard
+      - full
+    ports:
+      - "127.0.0.1:8005:8080"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    mem_limit: 512m
+    memswap_limit: 768m
+    networks:
+      - doc-conv-network
+    restart: unless-stopped
+
+  # === Docling Engine ===
+  docling-engine:
+    <<: *engine_storage
+    build:
+      context: ./engines/docling
+      dockerfile: Dockerfile
+    profiles:
+      - core
+      - standard
+      - full
+    ports:
+      - "127.0.0.1:8007:8080"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    mem_limit: 4g
+    memswap_limit: 5g
+    networks:
+      - doc-conv-network
+    restart: unless-stopped
+
+  # === Layout Detection Engine ===
+  layout-detection-engine:
+    <<: *engine_storage
+    build:
+      context: ./engines/layout-detection
+      dockerfile: Dockerfile
+    profiles:
+      - core
+      - standard
+      - full
+    ports:
+      - "127.0.0.1:8006:8080"
+    environment:
+      - LAYOUT_USE_GPU=${LAYOUT_USE_GPU:-false}
+      - LAYOUT_LANG=${LAYOUT_LANG:-ch}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 120s  # Longer startup for model download
+    mem_limit: 2g
+    memswap_limit: 3g
+    networks:
+      - doc-conv-network
+    restart: unless-stopped
+
+  # === Image Enhancement Engine ===
+  image-enhancement-engine:
+    <<: *engine_storage
+    build:
+      context: ./engines/image-enhancement
+      dockerfile: Dockerfile
+    profiles:
+      - core
+      - standard
+      - full
+    ports:
+      - "127.0.0.1:8008:8080"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    mem_limit: 1g
+    memswap_limit: 1536m
+    networks:
+      - doc-conv-network
+    restart: unless-stopped
+
+  # === Image Rotation Engine ===
+  image-rotation-engine:
+    <<: *engine_storage
+    build:
+      context: ./engines/image-rotation
+      dockerfile: Dockerfile
+    profiles:
+      - core
+      - standard
+      - full
+    ports:
+      - "127.0.0.1:8009:8080"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    mem_limit: 512m
+    memswap_limit: 768m
+    networks:
+      - doc-conv-network
+    restart: unless-stopped
+
+  # === Backend API ===
+  backend:
+    <<: *backend_runtime
+    profiles:
+      - standard
+      - full
+    command: sh -lc "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"
+    ports:
+      - "8000:8000"
+    environment:
+      - APP_NAME=${APP_NAME:-Document Conversion}
+      - DATABASE_URL=${DATABASE_URL:-postgresql+psycopg://${POSTGRES_USER:-docconv}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-docconv}}
+      - CORS_ORIGINS=${BACKEND_CORS_ORIGINS:-http://localhost:5173,http://localhost:5174}
+      - AUTH_SESSION_SECRET=${AUTH_SESSION_SECRET:?AUTH_SESSION_SECRET env var is required}
+      - AUTH_SESSION_COOKIE_NAME=${AUTH_SESSION_COOKIE_NAME:-docconv_session}
+      - AUTH_SESSION_TTL_HOURS=${AUTH_SESSION_TTL_HOURS:-168}
+      - AUTH_SESSION_SAME_SITE=${AUTH_SESSION_SAME_SITE:-lax}
+      - AUTH_SESSION_SECURE=${AUTH_SESSION_SECURE:-false}
+      - AUTH_SESSION_PATH=${AUTH_SESSION_PATH:-/}
+      - OCR_ENGINE_URL=${OCR_ENGINE_URL:-http://ocr-engine:8080}
+      - VLM_ENGINE_URL=${VLM_ENGINE_URL:-http://vlm-engine:8080}
+      - TEXT_ENGINE_URL=${TEXT_ENGINE_URL:-http://text-engine:8080}
+      - MARKITDOWN_ENGINE_URL=${MARKITDOWN_ENGINE_URL:-http://markitdown-engine:8080}
+      - DOCLING_ENGINE_URL=${DOCLING_ENGINE_URL:-http://docling-engine:8080}
+      - LAYOUT_DETECTION_ENGINE_URL=${LAYOUT_DETECTION_ENGINE_URL:-http://layout-detection-engine:8080}
+      - IMAGE_ENHANCEMENT_ENGINE_URL=${IMAGE_ENHANCEMENT_ENGINE_URL:-http://image-enhancement-engine:8080}
+      - IMAGE_ROTATION_ENGINE_URL=${IMAGE_ROTATION_ENGINE_URL:-http://image-rotation-engine:8080}
+      - OCR_MOCK_MODE=${OCR_MOCK_MODE:-false}
+      - REDIS_URL=${REDIS_URL:-redis://:${REDIS_PASSWORD:?REDIS_PASSWORD env var is required}@redis:6379/0}
+      - CELERY_BROKER_URL=${CELERY_BROKER_URL:-redis://:${REDIS_PASSWORD:?REDIS_PASSWORD env var is required}@redis:6379/0}
+      - CELERY_RESULT_BACKEND=${CELERY_RESULT_BACKEND:-redis://:${REDIS_PASSWORD:?REDIS_PASSWORD env var is required}@redis:6379/1}
+      - ORCHESTRATOR_MODE=${ORCHESTRATOR_MODE:-serial}
+      - ENABLE_QUEUE_MODE=${ENABLE_QUEUE_MODE:-false}
+      - WORKSPACE_RBAC_ENFORCED=true
+      - PROVIDER_ALLOW_PRIVATE_HOSTS=${PROVIDER_ALLOW_PRIVATE_HOSTS:-true}
+      - PROVIDER_DB_PATH=${PROVIDER_DB_PATH:-/app/storage/providers.db}
+      - PROVIDER_ENCRYPTION_KEY=${PROVIDER_ENCRYPTION_KEY:?PROVIDER_ENCRYPTION_KEY env var is required}
+      - PYTHONPATH=/app
+    depends_on:
+      ocr-engine:
+        condition: service_healthy
+      vlm-engine:
+        condition: service_healthy
+      text-engine:
+        condition: service_healthy
+      markitdown-engine:
+        condition: service_healthy
+      docling-engine:
+        condition: service_healthy
+      layout-detection-engine:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: [
+        "CMD-SHELL",
+        "python -c \"import json,sys,urllib.request; d=json.load(urllib.request.urlopen('http://localhost:8000/api/health', timeout=5)); sys.exit(0 if d.get('status') == 'healthy' else 1)\"",
+      ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    mem_limit: 1g
+    memswap_limit: 1536m
+    networks:
+      - doc-conv-network
+    restart: unless-stopped
+
+  # === Frontend UI ===
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    profiles:
+      - standard
+      - full
+    ports:
+      - "${FRONTEND_PORT:-5173}:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/ || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    mem_limit: 256m
+    memswap_limit: 384m
+    networks:
+      - doc-conv-network
+    restart: unless-stopped
+
+  # === Celery Worker ===
+  celery-worker:
+    <<: *backend_runtime
+    profiles:
+      - full
+    command: bash /app/scripts/start_worker.sh
+    environment:
+      - CELERY_BROKER_URL=${CELERY_BROKER_URL:-redis://:${REDIS_PASSWORD:?REDIS_PASSWORD env var is required}@redis:6379/0}
+      - CELERY_RESULT_BACKEND=${CELERY_RESULT_BACKEND:-redis://:${REDIS_PASSWORD:?REDIS_PASSWORD env var is required}@redis:6379/1}
+      - CELERY_WORKER_CONCURRENCY=${CELERY_WORKER_CONCURRENCY:-2}
+      - CELERY_WORKER_QUEUES=${CELERY_WORKER_QUEUES:-celery,workflow,evaluation}
+      - DATABASE_URL=${DATABASE_URL:-postgresql+psycopg://${POSTGRES_USER:-docconv}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-docconv}}
+      - OCR_ENGINE_URL=${OCR_ENGINE_URL:-http://ocr-engine:8080}
+      - VLM_ENGINE_URL=${VLM_ENGINE_URL:-http://vlm-engine:8080}
+      - TEXT_ENGINE_URL=${TEXT_ENGINE_URL:-http://text-engine:8080}
+      - MARKITDOWN_ENGINE_URL=${MARKITDOWN_ENGINE_URL:-http://markitdown-engine:8080}
+      - DOCLING_ENGINE_URL=${DOCLING_ENGINE_URL:-http://docling-engine:8080}
+      - LAYOUT_DETECTION_ENGINE_URL=${LAYOUT_DETECTION_ENGINE_URL:-http://layout-detection-engine:8080}
+      - IMAGE_ENHANCEMENT_ENGINE_URL=${IMAGE_ENHANCEMENT_ENGINE_URL:-http://image-enhancement-engine:8080}
+      - IMAGE_ROTATION_ENGINE_URL=${IMAGE_ROTATION_ENGINE_URL:-http://image-rotation-engine:8080}
+      - OCR_MOCK_MODE=${OCR_MOCK_MODE:-false}
+      - ORCHESTRATOR_MODE=${ORCHESTRATOR_MODE:-serial}
+      - WORKSPACE_RBAC_ENFORCED=true
+      - PROVIDER_ALLOW_PRIVATE_HOSTS=${PROVIDER_ALLOW_PRIVATE_HOSTS:-true}
+      - PROVIDER_DB_PATH=${PROVIDER_DB_PATH:-/app/storage/providers.db}
+      - PROVIDER_ENCRYPTION_KEY=${PROVIDER_ENCRYPTION_KEY:?PROVIDER_ENCRYPTION_KEY env var is required}
+      - RUNTIME_ATTESTATION_URL=${RUNTIME_ATTESTATION_URL:-http://backend:8000/api/internal/runtime-attestation}
+      - RUNTIME_ATTESTATION_TIMEOUT_SECONDS=${RUNTIME_ATTESTATION_TIMEOUT_SECONDS:-5}
+      - PYTHONPATH=/app
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          'python -c "from app.worker import ping_redis; import sys; sys.exit(0 if ping_redis(timeout_seconds=3.0) else 1)"',
+        ]
+      interval: 30s
+      timeout: 15s
+      retries: 3
+      start_period: 60s
+    mem_limit: 1g
+    memswap_limit: 1536m
+    networks:
+      - doc-conv-network
+    restart: unless-stopped
+
+  # === PostgreSQL Database ===
+  postgres:
+    image: postgres:16-alpine
+    profiles:
+      - standard
+      - full
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-docconv}
+      POSTGRES_USER: ${POSTGRES_USER:-docconv}
+      # SECURITY: POSTGRES_PASSWORD must be set in .env or environment — no insecure default
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD env var is required}
+      POSTGRES_HOST_AUTH_METHOD: ${POSTGRES_HOST_AUTH_METHOD:-scram-sha-256}
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-docconv}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    mem_limit: 512m
+    memswap_limit: 768m
+    networks:
+      - doc-conv-network
+    restart: unless-stopped
+
+  # === Redis Cache/Broker ===
+  redis:
+    image: redis:7-alpine
+    profiles:
+      - full
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - redis_data:/data
+    command:
+      [
+        "redis-server",
+        "--appendonly",
+        "yes",
+        "--requirepass",
+        "${REDIS_PASSWORD:?REDIS_PASSWORD env var is required}",
+        "--maxmemory",
+        "200mb",
+        "--maxmemory-policy",
+        "allkeys-lru",
+      ]
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "redis-cli",
+          "--no-auth-warning",
+          "-a",
+          "${REDIS_PASSWORD:?REDIS_PASSWORD env var is required}",
+          "ping",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    mem_limit: 256m
+    memswap_limit: 384m
+    networks:
+      - doc-conv-network
+    restart: unless-stopped
+
+  # === Flower (Celery Monitoring) ===
+  flower:
+    image: mher/flower:2.0
+    profiles:
+      - monitoring
+    ports:
+      - "127.0.0.1:5555:5555"
+    environment:
+      - CELERY_BROKER_URL=${CELERY_BROKER_URL:-redis://:${REDIS_PASSWORD:?REDIS_PASSWORD env var is required}@redis:6379/0}
+      - FLOWER_BASIC_AUTH=${FLOWER_BASIC_AUTH:-}
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - doc-conv-network
+    restart: unless-stopped
+
+  # Local OpenAI/Azure-compatible upstream used only by the public E2E profile.
+  vlm-mock:
+    image: python:3.12-alpine
+    profiles:
+      - test
+    command: ["python", "/mock/mock_openai_service.py"]
+    volumes:
+      - ./tests/mock_openai_service.py:/mock/mock_openai_service.py:ro
+    ports:
+      - "127.0.0.1:${VLM_MOCK_PORT:-18080}:8080"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:8080/health', timeout=2)",
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - doc-conv-network
+    restart: "no"
+
+networks:
+  doc-conv-network:
+    driver: bridge
+
+# Volumes for persistent storage
+volumes:
+  doc-conv-storage:
+  postgres_data:
+  redis_data:

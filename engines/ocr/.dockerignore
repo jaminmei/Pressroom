@@ -1,0 +1,45 @@
+# Docker ignore for OCR Engine
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+ENV/
+*.egg-info/
+dist/
+build/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Git
+.git/
+.gitignore
+
+# Tests
+tests/
+*.test
+.pytest_cache/
+
+# Documentation
+*.md
+!README.md
+
+# Local config
+.env
+.env.local
+
+# Models - usually downloaded at build time or mounted
+# Uncomment if you want to include local models in build:
+# models/
+
+# Temporary files
+*.tmp
+*.temp
+*.log

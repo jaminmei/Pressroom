@@ -1,0 +1,9 @@
+# SHA256 and path for each binary asset approved for public distribution.
+# Synthetic fixture entries are maintained by scripts/generate-public-fixtures.py.
+8ccde3dfd4f6bf3a6216713e359e47086a7b187542226f97cebf03070a1f0866  frontend/e2e/fixtures/test-document.pdf
+705d683691dcef20ce3258d0b39faea22754dc37c3149eb3e88770f99bfa692f  frontend/e2e/fixtures/test-image.png
+76b56ea341c6cd8a5d1becaf1764b36073e9e34f08cec90fd245f2312f1beea1  frontend/e2e/fixtures/test-single-page.pdf
+bd5ee33d3aab3dbdac21e27794bed808a2202405dc502fc59df54c536435d461  frontend/public/corgi-logo.png
+53e5f35be1c8284149a57c991c35d7b5fcb8536a00f1c70028ecbcbcb427b17a  tests/fixtures/stress/multi-page.pdf
+84dbc6310068e31b6702aa4a696259e02ac04efb9ba3f00e723aa20d172b9ddd  tests/fixtures/stress/single-page.pdf
+cad502de4a34c5ce73045628d00b69b9272a931d0e7fa9a04014ab0ee699c568  tests/fixtures/stress/single-page.png

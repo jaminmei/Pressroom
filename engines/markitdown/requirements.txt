@@ -1,0 +1,16 @@
+# engines/markitdown/requirements.txt
+# Web framework
+fastapi>=0.139.2
+uvicorn[standard]>=0.27.0
+gunicorn>=22.0.0
+
+# MarkItDown engine
+# Enable PDF converter dependencies to avoid MissingDependencyException on .pdf inputs.
+markitdown[pdf]==0.1.5
+
+# Data validation
+pydantic>=2.5.3
+python-multipart>=0.0.31
+
+# File type detection
+python-magic==0.4.27

@@ -1,0 +1,15 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# engines/text/requirements.txt
+# Web framework
+fastapi>=0.139.2
+uvicorn[standard]>=0.27.0
+gunicorn>=22.0.0
+
+# HTML parsing
+beautifulsoup4==4.12.3
+html2text==2020.1.16
+lxml>=6.1.0
+
+# Data validation
+pydantic>=2.5.3
+python-multipart>=0.0.31

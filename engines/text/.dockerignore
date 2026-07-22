@@ -1,0 +1,15 @@
+# SPDX-License-Identifier: GPL-3.0-only
+
+__pycache__
+*.pyc
+*.pyo
+.git
+.gitignore
+.env
+.venv
+venv/
+*.egg-info
+.pytest_cache
+.coverage
+htmlcov/
+*.log

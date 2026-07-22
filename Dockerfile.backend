@@ -1,0 +1,20 @@
+FROM python:3.11-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+
+WORKDIR /app
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends poppler-utils \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY requirements.lock /app/requirements.lock
+COPY alembic.ini /app/alembic.ini
+RUN pip install --no-cache-dir --require-hashes -r /app/requirements.lock
+
+COPY app /app/app
+COPY alembic /app/alembic
+COPY scripts /app/scripts
+
+ENV PYTHONPATH=/app

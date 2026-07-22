@@ -1,0 +1,255 @@
+/* Workspace surfaces that embed provider and general settings. */
+.provider-settings-surface {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  padding: 24px;
+  overflow-y: auto;
+}
+
+.provider-settings-surface.is-embedded {
+  position: relative;
+  inset: auto;
+  width: 100%;
+  max-width: 1040px;
+  padding: 0;
+  overflow: visible;
+}
+
+.provider-settings-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.provider-settings-heading {
+  display: grid;
+  min-width: 0;
+  gap: 6px;
+}
+
+.provider-settings-panel,
+.workspace-settings-panel {
+  border: 1px solid rgba(222, 222, 232, 0.92);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.88);
+  box-shadow: 0 12px 32px rgba(35, 24, 63, 0.055);
+  backdrop-filter: blur(16px);
+}
+
+.provider-settings-panel {
+  min-height: 260px;
+  padding: 20px;
+}
+
+.provider-settings-state {
+  display: grid;
+  min-height: 220px;
+  place-items: center;
+}
+
+.provider-settings-state .ant-result {
+  padding-block: 24px;
+}
+
+.provider-settings-list {
+  display: grid;
+  gap: 16px;
+}
+
+.workspace-general-page {
+  display: grid;
+  width: 100%;
+  max-width: 900px;
+  gap: 20px;
+}
+
+.workspace-general-page .workspace-settings-panel > .ant-card-head {
+  min-height: 58px;
+  border-bottom-color: rgba(222, 222, 232, 0.78);
+}
+
+.workspace-general-page .workspace-settings-panel > .ant-card-head .ant-card-head-title {
+  font-size: 16px;
+  font-weight: 800;
+}
+
+.workspace-general-form {
+  max-width: 680px;
+}
+
+.workspace-general-form .ant-input,
+.workspace-general-form .ant-input-affix-wrapper,
+.workspace-general-form .ant-input-textarea textarea,
+.workspace-dialog-content .ant-input,
+.workspace-dialog-content .ant-select-selector {
+  border-radius: 12px;
+}
+
+.workspace-general-switch-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.workspace-general-form-actions {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 4px;
+}
+
+.workspace-danger-panel {
+  border-color: rgba(212, 73, 63, 0.26);
+}
+
+.workspace-danger-panel > .ant-card-head {
+  color: #bd3029;
+}
+
+.workspace-danger-list {
+  display: grid;
+}
+
+.workspace-danger-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 28px;
+  padding: 18px 0;
+  border-bottom: 1px solid rgba(222, 222, 232, 0.76);
+}
+
+.workspace-danger-row:first-child {
+  padding-top: 4px;
+}
+
+.workspace-danger-row:last-child {
+  padding-bottom: 4px;
+  border-bottom: 0;
+}
+
+.workspace-danger-copy,
+.workspace-danger-action {
+  display: grid;
+  gap: 5px;
+}
+
+.workspace-danger-copy {
+  min-width: 0;
+}
+
+.workspace-danger-action {
+  flex: 0 0 auto;
+  justify-items: end;
+  max-width: 360px;
+}
+
+.workspace-action-reason {
+  max-width: 340px;
+  font-size: 12px;
+  line-height: 1.45;
+  text-align: right;
+}
+
+.workspace-action-feedback {
+  display: grid;
+  justify-items: end;
+  gap: 2px;
+}
+
+.workspace-action-feedback .ant-btn-link {
+  height: auto;
+  padding: 0;
+  font-size: 12px;
+}
+
+.workspace-dialog-content {
+  display: grid;
+  gap: 16px;
+  padding-top: 4px;
+}
+
+/* Database is a responsive list page; keep its title and CTA intact on phones. */
+.projects-list-welcome h2.ant-typography {
+  white-space: nowrap;
+  word-break: keep-all;
+  overflow-wrap: normal;
+}
+
+@media (max-width: 720px) {
+  .provider-settings-surface {
+    padding: 18px;
+  }
+
+  .provider-settings-surface.is-embedded {
+    padding: 0;
+  }
+
+  .provider-settings-header,
+  .projects-list-welcome {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .provider-settings-header > .ant-btn,
+  .provider-settings-header > span,
+  .projects-list-welcome > .ant-btn {
+    width: 100%;
+  }
+
+  .provider-settings-header > span .ant-btn {
+    width: 100%;
+  }
+
+  .provider-settings-panel {
+    min-height: 220px;
+    padding: 14px;
+  }
+
+  .workspace-general-page {
+    gap: 16px;
+  }
+
+  .workspace-danger-row {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 14px;
+  }
+
+  .workspace-danger-action {
+    justify-items: stretch;
+    max-width: none;
+  }
+
+  .workspace-danger-action .ant-btn,
+  .workspace-danger-action > span,
+  .workspace-danger-action > span .ant-btn {
+    width: 100%;
+  }
+
+  .workspace-action-reason {
+    max-width: none;
+    text-align: left;
+  }
+
+  .workspace-action-feedback {
+    justify-items: start;
+  }
+
+  .workspace-general-form-actions .ant-btn {
+    width: 100%;
+  }
+}
+
+@media (max-width: 420px) {
+  .projects-list-welcome-content {
+    min-width: 0;
+  }
+
+  .projects-list-welcome-desc {
+    overflow-wrap: anywhere;
+  }
+}

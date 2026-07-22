@@ -1,0 +1,11 @@
+from __future__ import annotations
+
+DEFAULT_CELERY_QUEUE = "celery"
+WORKFLOW_CELERY_QUEUE = "workflow"
+EVALUATION_CELERY_QUEUE = "evaluation"
+
+REQUIRED_CELERY_QUEUES: tuple[str, ...] = (
+    DEFAULT_CELERY_QUEUE,
+    WORKFLOW_CELERY_QUEUE,
+    EVALUATION_CELERY_QUEUE,
+)

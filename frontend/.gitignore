@@ -1,0 +1,11 @@
+node_modules/
+dist/
+coverage/
+.DS_Store
+.env
+.env.*
+*.local
+.vscode/
+*.tsbuildinfo
+.vite/
+test-results/

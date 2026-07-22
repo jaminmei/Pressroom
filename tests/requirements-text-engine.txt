@@ -1,0 +1,7 @@
+# SPDX-License-Identifier: MIT
+# Test-only dependencies needed to import the separately licensed Text engine
+# from the repository-wide pytest suite. Application services must not depend
+# on this file.
+beautifulsoup4==4.12.3
+html2text==2020.1.16
+lxml==6.1.1

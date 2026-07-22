@@ -1,0 +1,44 @@
+[tool.pytest.ini_options]
+pythonpath = ["."]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = false
+warn_unused_ignores = true
+warn_redundant_casts = true
+warn_return_any = true
+warn_unreachable = true
+disallow_untyped_defs = true
+check_untyped_defs = true
+namespace_packages = true
+explicit_package_bases = true
+mypy_path = [".", "engines/ocr"]
+ignore_missing_imports = false
+exclude = "^(tests/|alembic/)"
+
+[[tool.mypy.overrides]]
+module = ["celery", "celery.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["chardet"]
+ignore_missing_imports = true
+
+[tool.coverage.run]
+omit = [
+    "app/adapters/*",
+    "app/services/output_formatter/*",
+    "app/services/html_preprocessor.py",
+    "app/services/image_preprocessor.py",
+    "app/api/files.py",
+    "app/api/nodes.py",
+    "app/db/url.py",
+    "app/services/document_router.py",
+]
