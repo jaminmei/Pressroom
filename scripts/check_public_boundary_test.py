@@ -157,6 +157,28 @@ def test_rejects_unknown_public_script_and_document(tmp_path: Path) -> None:
     assert "path is outside the public docs allowlist: docs/release-roadmap.md" in result.stderr
 
 
+def test_allows_frontend_dependency_audit_script(tmp_path: Path) -> None:
+    repo = _prepare_repo(tmp_path, "")
+    audit = repo / "scripts/check-frontend-audit.py"
+    audit.write_text("raise SystemExit(0)\n", encoding="utf-8")
+
+    result = _run_tree(repo)
+
+    assert result.returncode == 0
+
+
+def test_allows_release_provenance_scripts(tmp_path: Path) -> None:
+    repo = _prepare_repo(tmp_path, "")
+    checker = repo / "scripts/check_release_provenance.py"
+    checker.write_text("raise SystemExit(0)\n", encoding="utf-8")
+    tests = repo / "scripts/check_release_provenance_test.py"
+    tests.write_text("def test_placeholder():\n    pass\n", encoding="utf-8")
+
+    result = _run_tree(repo)
+
+    assert result.returncode == 0
+
+
 def test_rejects_unsafe_placeholder_but_allows_change_member_label(tmp_path: Path) -> None:
     repo = _prepare_repo(tmp_path, "")
     unsafe_placeholder = "change" + "me"
