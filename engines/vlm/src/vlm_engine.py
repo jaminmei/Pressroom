@@ -23,7 +23,7 @@ from src.provider_transport import provider_http_client
 logger = logging.getLogger(__name__)
 
 _INTERNAL_METADATA_KEY = "_vlm_metadata"
-_EMPTY_BEARER_HEADER = "Bearer"
+_NO_CREDENTIAL_PLACEHOLDER = "doc-conv-no-credential"
 
 
 class ApiStyle(str, Enum):
@@ -85,24 +85,21 @@ class OpenAIAdapter:
         self._transport = transport
 
     def complete(self, kwargs: dict[str, Any]) -> CompletionResult:
-        api_key = self._credential if self._credential_kind is not CredentialKind.none else ""
+        api_key = (
+            self._credential
+            if self._credential_kind is not CredentialKind.none
+            else _NO_CREDENTIAL_PLACEHOLDER
+        )
         http_client = provider_http_client(
             verify=self._upstream.ssl_verify,
             transport=self._transport,
         )
         if self._credential_kind is CredentialKind.none:
-            http_client.event_hooks["request"].append(_strip_empty_credential_headers)
-        default_headers = (
-            {"Authorization": _EMPTY_BEARER_HEADER}
-            if self._credential_kind is CredentialKind.none
-            else None
-        )
+            http_client.event_hooks["request"].append(_strip_placeholder_credential_headers)
         client = OpenAI(
             base_url=self._upstream.base_url,
             api_key=api_key,
             http_client=http_client,
-            default_headers=default_headers,
-            _enforce_credentials=self._credential_kind is not CredentialKind.none,
         )
         try:
             return _invoke_completion(client, kwargs)
@@ -130,7 +127,7 @@ class AzureOpenAIAdapter:
             transport=self._transport,
         )
         if self._credential_kind is CredentialKind.none:
-            http_client.event_hooks["request"].append(_strip_empty_credential_headers)
+            http_client.event_hooks["request"].append(_strip_placeholder_credential_headers)
         client_kwargs: dict[str, Any] = {
             "azure_endpoint": self._upstream.base_url,
             "api_version": self._upstream.api_version,
@@ -142,11 +139,7 @@ class AzureOpenAIAdapter:
             client_kwargs["azure_ad_token"] = self._credential
         else:
             # Explicitly suppress ambient AZURE_OPENAI_* credentials.
-            client_kwargs["api_key"] = ""
-            # The SDK requires an auth-shaped default even with credential
-            # enforcement disabled. The request hook removes this empty bearer.
-            client_kwargs["default_headers"] = {"Authorization": _EMPTY_BEARER_HEADER}
-            client_kwargs["_enforce_credentials"] = False
+            client_kwargs["api_key"] = _NO_CREDENTIAL_PLACEHOLDER
 
         client = AzureOpenAI(**client_kwargs)
         try:
@@ -155,10 +148,13 @@ class AzureOpenAIAdapter:
             client.close()
 
 
-def _strip_empty_credential_headers(request: httpx.Request) -> None:
+def _strip_placeholder_credential_headers(request: httpx.Request) -> None:
     for header in ("api-key", "authorization"):
         value = request.headers.get(header)
-        if value is not None and not value.strip().removeprefix("Bearer").strip():
+        if value is not None and value.strip() in {
+            _NO_CREDENTIAL_PLACEHOLDER,
+            f"Bearer {_NO_CREDENTIAL_PLACEHOLDER}",
+        }:
             del request.headers[header]
 
 

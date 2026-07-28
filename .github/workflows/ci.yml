@@ -2,8 +2,11 @@ name: Public CI
 
 on:
   pull_request:
+    branches: [develop, main]
+    types: [opened, synchronize, reopened, edited]
   push:
-    branches: [main]
+    branches: [develop, main]
+    tags: ["v*"]
   schedule:
     - cron: "23 3 * * 1"
   workflow_dispatch:
@@ -18,7 +21,7 @@ concurrency:
 jobs:
   public-boundary:
     name: Public boundary and secrets
-    if: github.repository == 'jaminmei/Pressroom'
+    if: github.ref_type != 'tag' || github.repository == 'jaminmei/doc-conv'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -29,9 +32,14 @@ jobs:
           persist-credentials: false
 
       - name: Validate public tree and provenance
-        run: >-
-          python3 scripts/check-public-boundary.py
-          --expected-origin jaminmei/Pressroom
+        shell: bash
+        run: |
+          set -euo pipefail
+          args=(--expected-origin "${{ github.repository }}")
+          if [[ "${{ github.ref_name }}" == "v0.2.0" ]]; then
+            args+=(--initial-release-tag "${{ github.ref_name }}")
+          fi
+          python3 scripts/check-public-boundary.py "${args[@]}"
 
       - name: Verify deterministic public fixtures
         run: python3 scripts/generate-public-fixtures.py --check
@@ -60,9 +68,44 @@ jobs:
             './**/*.md'
           fail: true
 
+  release-provenance:
+    name: Release provenance
+    if: >-
+      github.repository == 'jaminmei/Pressroom' &&
+      (
+        (
+          github.event_name == 'pull_request' &&
+          github.base_ref == 'main'
+        ) ||
+        (
+          github.event_name == 'push' &&
+          github.ref == 'refs/heads/main'
+        )
+      )
+    permissions:
+      contents: read
+      pull-requests: read
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      tag: ${{ steps.provenance.outputs.tag }}
+      source_commit: ${{ steps.provenance.outputs.source_commit }}
+      source_tree: ${{ steps.provenance.outputs.source_tree }}
+      pull_number: ${{ steps.provenance.outputs.pull_number }}
+      head_commit: ${{ steps.provenance.outputs.head_commit }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Validate release App, metadata, ancestry, and tree
+        id: provenance
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/check_release_provenance.py
+
   python-quality:
     name: Python quality and tests
-    if: github.repository == 'jaminmei/Pressroom'
+    if: github.repository == 'jaminmei/doc-conv'
     runs-on: ubuntu-latest
     timeout-minutes: 35
     steps:
@@ -150,7 +193,7 @@ jobs:
 
   dependency-audit:
     name: Python dependency audit
-    if: github.repository == 'jaminmei/Pressroom'
+    if: github.repository == 'jaminmei/doc-conv'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -181,7 +224,7 @@ jobs:
 
   frontend-quality:
     name: Frontend quality and build
-    if: github.repository == 'jaminmei/Pressroom'
+    if: github.repository == 'jaminmei/doc-conv'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -198,8 +241,7 @@ jobs:
         working-directory: frontend
         run: npm ci
       - name: Audit production dependencies
-        working-directory: frontend
-        run: npm audit --omit=dev --audit-level=high
+        run: python3 scripts/check-frontend-audit.py frontend
       - name: Reject unexplained critical development dependencies
         working-directory: frontend
         run: npm audit --audit-level=critical
@@ -225,7 +267,7 @@ jobs:
 
   standard-compose:
     name: Standard Compose and public E2E
-    if: github.repository == 'jaminmei/Pressroom'
+    if: github.repository == 'jaminmei/doc-conv'
     runs-on: ubuntu-latest
     needs: [public-boundary, python-quality, frontend-quality]
     timeout-minutes: 60
@@ -317,15 +359,20 @@ jobs:
   full-queue:
     name: Full queue profile
     if: >-
-      github.repository == 'jaminmei/Pressroom' &&
+      github.repository == 'jaminmei/doc-conv' &&
       (
         github.event_name == 'schedule' ||
         github.event_name == 'workflow_dispatch' ||
         (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
         (
+          github.event_name == 'push' &&
+          github.repository == 'jaminmei/doc-conv' &&
+          startsWith(github.ref, 'refs/tags/v')
+        ) ||
+        (
           github.event_name == 'pull_request' &&
           github.base_ref == 'main' &&
-          startsWith(github.head_ref, 'publish/') &&
+          github.head_ref == 'develop' &&
           github.event.pull_request.head.repo.full_name == github.repository
         )
       )
@@ -401,10 +448,10 @@ jobs:
       - name: Wait for application liveness
         run: TIMEOUT=420 bash scripts/wait-for-services.sh
       - name: Verify authenticated Redis ping
-        run: >-
-          timeout 300 bash -c 'until docker compose --profile full exec -T redis
-          redis-cli --no-auth-warning -a "$REDIS_PASSWORD" ping 2>/dev/null | grep -q PONG;
-          do sleep 3; done'
+        run: |
+          timeout 300 bash -c "until docker compose --profile full exec -T redis \
+          redis-cli --no-auth-warning -a \"\$REDIS_PASSWORD\" ping 2>/dev/null | grep -q PONG;
+          do sleep 3; done"
       - name: Verify Celery worker
         run: >-
           timeout 300 bash -c 'until docker compose --profile full exec -T celery-worker
@@ -437,3 +484,327 @@ jobs:
       - name: Teardown
         if: always()
         run: docker compose --profile full --profile test down --remove-orphans -v
+
+  publish-pressroom:
+    name: Open PressRoom release pull request
+    if: >-
+      github.event_name == 'push' &&
+      github.repository == 'jaminmei/doc-conv' &&
+      startsWith(github.ref, 'refs/tags/v')
+    needs:
+      [
+        public-boundary,
+        python-quality,
+        dependency-audit,
+        frontend-quality,
+        standard-compose,
+        full-queue,
+      ]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      PRESSROOM_REPOSITORY: jaminmei/Pressroom
+    steps:
+      - name: Checkout tagged release
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify immutable release tag
+        id: release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME}"
+          [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          git cat-file -e "refs/tags/${tag}^{tag}"
+          tag_commit="$(git rev-parse "refs/tags/${tag}^{commit}")"
+          main_commit="$(
+            gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" \
+              --jq '.object.sha'
+          )"
+          [[ "$tag_commit" == "$main_commit" ]]
+          printf 'tag=%s\ncommit=%s\n' "$tag" "$tag_commit" >> "$GITHUB_OUTPUT"
+
+      - name: Create scoped PressRoom installation token
+        id: pressroom-token
+        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2
+        with:
+          app-id: ${{ secrets.PRESSROOM_SYNC_APP_ID }}
+          private-key: ${{ secrets.PRESSROOM_SYNC_APP_PRIVATE_KEY }}
+          owner: jaminmei
+          repositories: Pressroom
+
+      - name: Prepare the PressRoom release branch
+        id: sync
+        shell: bash
+        env:
+          PRESSROOM_TOKEN: ${{ steps.pressroom-token.outputs.token }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          RELEASE_COMMIT: ${{ steps.release.outputs.commit }}
+        run: |
+          set -euo pipefail
+          branch="publish/${RELEASE_TAG}"
+          remote_url="https://x-access-token:${PRESSROOM_TOKEN}@github.com/${PRESSROOM_REPOSITORY}.git"
+          git remote add pressroom "$remote_url"
+          git fetch --quiet --no-tags pressroom \
+            refs/heads/main:refs/remotes/pressroom/main
+          target_commit="$(git rev-parse refs/remotes/pressroom/main)"
+          target_tree="$(git rev-parse "${target_commit}^{tree}")"
+          release_tree="$(git rev-parse "${RELEASE_COMMIT}^{tree}")"
+          printf 'branch=%s\n' "$branch" >> "$GITHUB_OUTPUT"
+          if [[ "$target_tree" == "$release_tree" ]]; then
+            printf 'already_released=true\n' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          release_date="$(git show -s --format=%cI "$RELEASE_COMMIT")"
+          export GIT_AUTHOR_NAME="PressRoom Release Sync"
+          export GIT_AUTHOR_EMAIL="pressroom-release-sync@users.noreply.github.com"
+          export GIT_AUTHOR_DATE="$release_date"
+          export GIT_COMMITTER_NAME="$GIT_AUTHOR_NAME"
+          export GIT_COMMITTER_EMAIL="$GIT_AUTHOR_EMAIL"
+          export GIT_COMMITTER_DATE="$release_date"
+          sync_commit="$(
+            printf 'release: sync %s from doc-conv\n' "$RELEASE_TAG" |
+              git commit-tree "$release_tree" -p "$target_commit"
+          )"
+
+          existing="$(
+            git ls-remote --heads pressroom "refs/heads/${branch}" |
+              awk '{print $1}'
+          )"
+          if [[ -n "$existing" ]]; then
+            git fetch --quiet --no-tags pressroom \
+              "refs/heads/${branch}:refs/remotes/pressroom/${branch}"
+            existing_tree="$(git rev-parse "${existing}^{tree}")"
+            existing_parent="$(git rev-parse "${existing}^")"
+            if [[ "$existing_tree" == "$release_tree" && "$existing_parent" == "$target_commit" ]]; then
+              sync_commit="$existing"
+            else
+              git push --quiet pressroom \
+                --force-with-lease="refs/heads/${branch}:${existing}" \
+                "${sync_commit}:refs/heads/${branch}"
+            fi
+          else
+            git push --quiet pressroom "${sync_commit}:refs/heads/${branch}"
+          fi
+          printf 'already_released=false\n' >> "$GITHUB_OUTPUT"
+          printf 'commit=%s\n' "$sync_commit" >> "$GITHUB_OUTPUT"
+          printf 'tree=%s\n' "$release_tree" >> "$GITHUB_OUTPUT"
+
+      - name: Create or update the PressRoom release pull request
+        if: steps.sync.outputs.already_released != 'true'
+        shell: bash
+        env:
+          PRESSROOM_TOKEN: ${{ steps.pressroom-token.outputs.token }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          RELEASE_COMMIT: ${{ steps.release.outputs.commit }}
+          RELEASE_TREE: ${{ steps.sync.outputs.tree }}
+          RELEASE_BRANCH: ${{ steps.sync.outputs.branch }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import urllib.error
+          import urllib.parse
+          import urllib.request
+
+          api_url = os.environ["GITHUB_API_URL"]
+          repository = os.environ["PRESSROOM_REPOSITORY"]
+          token = os.environ["PRESSROOM_TOKEN"]
+          tag = os.environ["RELEASE_TAG"]
+          commit = os.environ["RELEASE_COMMIT"]
+          tree = os.environ["RELEASE_TREE"]
+          branch = os.environ["RELEASE_BRANCH"]
+          headers = {
+              "Accept": "application/vnd.github+json",
+              "Authorization": f"Bearer {token}",
+              "X-GitHub-Api-Version": "2022-11-28",
+          }
+
+          def request(method: str, path: str, payload: dict | None = None) -> object:
+              body = None
+              request_headers = headers.copy()
+              if payload is not None:
+                  body = json.dumps(payload).encode()
+                  request_headers["Content-Type"] = "application/json"
+              req = urllib.request.Request(
+                  f"{api_url}/repos/{repository}{path}",
+                  data=body,
+                  headers=request_headers,
+                  method=method,
+              )
+              try:
+                  with urllib.request.urlopen(req, timeout=30) as response:
+                      return json.load(response)
+              except urllib.error.HTTPError as error:
+                  raise SystemExit("PressRoom pull request API request failed") from error
+
+          title = f"Release {tag} from doc-conv"
+          body = "\n".join(
+              (
+                  f"Publish `{tag}` from the validated doc-conv release tag.",
+                  "",
+                  f"Source commit: `{commit}`",
+                  "",
+                  f"Source tree: `{tree}`",
+                  "",
+                  "This PR must pass all PressRoom checks and receive the required approval.",
+              )
+          )
+          head = urllib.parse.quote(f"jaminmei:{branch}", safe="")
+          pulls = request("GET", f"/pulls?state=open&base=main&head={head}")
+          if not isinstance(pulls, list):
+              raise SystemExit("unexpected PressRoom pull request response")
+          payload = {
+              "title": title,
+              "body": body,
+              "base": "main",
+              "head": branch,
+              "draft": False,
+              "maintainer_can_modify": False,
+          }
+          if pulls:
+              update = {
+                  "title": title,
+                  "body": body,
+                  "base": "main",
+                  "maintainer_can_modify": False,
+              }
+              request("PATCH", f"/pulls/{pulls[0]['number']}", update)
+          else:
+              request("POST", "/pulls", payload)
+          PY
+
+  finalize-pressroom-release:
+    name: Finalize merged PressRoom release
+    if: >-
+      github.event_name == 'push' &&
+      github.repository == 'jaminmei/Pressroom' &&
+      github.ref == 'refs/heads/main'
+    needs:
+      [
+        public-boundary,
+        release-provenance,
+      ]
+    permissions:
+      contents: write
+      pull-requests: read
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Create the immutable tag and draft release for a merged release PR
+        shell: bash
+        env:
+          RELEASE_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.release-provenance.outputs.tag }}
+        run: |
+          python3 - <<'PY'
+          import datetime as dt
+          import json
+          import os
+          import re
+          import urllib.error
+          import urllib.parse
+          import urllib.request
+
+          api_url = os.environ["GITHUB_API_URL"]
+          repository = os.environ["GITHUB_REPOSITORY"]
+          commit = os.environ["GITHUB_SHA"]
+          token = os.environ["RELEASE_TOKEN"]
+          tag = os.environ["RELEASE_TAG"]
+          headers = {
+              "Accept": "application/vnd.github+json",
+              "Authorization": f"Bearer {token}",
+              "X-GitHub-Api-Version": "2022-11-28",
+          }
+
+          def request(
+              method: str,
+              path: str,
+              payload: dict | None = None,
+              *,
+              allow_missing: bool = False,
+          ) -> object | None:
+              body = None
+              request_headers = headers.copy()
+              if payload is not None:
+                  body = json.dumps(payload).encode()
+                  request_headers["Content-Type"] = "application/json"
+              req = urllib.request.Request(
+                  f"{api_url}/repos/{repository}{path}",
+                  data=body,
+                  headers=request_headers,
+                  method=method,
+              )
+              try:
+                  with urllib.request.urlopen(req, timeout=30) as response:
+                      return json.load(response)
+              except urllib.error.HTTPError as error:
+                  if allow_missing and error.code == 404:
+                      return None
+                  raise SystemExit("PressRoom release finalization API request failed") from error
+
+          if re.fullmatch(r"v[0-9]+\.[0-9]+\.[0-9]+", tag) is None:
+              raise SystemExit("release provenance did not provide a valid tag")
+          encoded_tag = urllib.parse.quote(tag, safe="")
+          existing_ref = request(
+              "GET",
+              f"/git/ref/tags/{encoded_tag}",
+              allow_missing=True,
+          )
+          if existing_ref is None:
+              tag_object = request(
+                  "POST",
+                  "/git/tags",
+                  {
+                      "tag": tag,
+                      "message": f"Public release {tag}",
+                      "object": commit,
+                      "type": "commit",
+                      "tagger": {
+                          "name": "PressRoom Release Sync",
+                          "email": "pressroom-release-sync@users.noreply.github.com",
+                          "date": dt.datetime.now(dt.UTC).isoformat(),
+                      },
+                  },
+              )
+              if not isinstance(tag_object, dict) or not tag_object.get("sha"):
+                  raise SystemExit("unable to create annotated release tag object")
+              request(
+                  "POST",
+                  "/git/refs",
+                  {"ref": f"refs/tags/{tag}", "sha": tag_object["sha"]},
+              )
+          elif isinstance(existing_ref, dict):
+              target = existing_ref.get("object", {})
+              if target.get("type") != "tag":
+                  raise SystemExit("existing release tag is not annotated")
+              tag_object = request("GET", f"/git/tags/{target.get('sha', '')}")
+              if not isinstance(tag_object, dict) or tag_object.get("object", {}).get("sha") != commit:
+                  raise SystemExit("existing release tag points to another commit")
+          else:
+              raise SystemExit("unexpected release tag response")
+
+          release = {
+              "tag_name": tag,
+              "target_commitish": commit,
+              "name": tag,
+              "draft": True,
+              "prerelease": False,
+              "generate_release_notes": True,
+          }
+          existing_release = request(
+              "GET",
+              f"/releases/tags/{encoded_tag}",
+              allow_missing=True,
+          )
+          if existing_release is None:
+              request("POST", "/releases", release)
+          elif isinstance(existing_release, dict) and existing_release.get("draft"):
+              request("PATCH", f"/releases/{existing_release['id']}", release)
+          PY
