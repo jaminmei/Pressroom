@@ -10,6 +10,12 @@ on:
   schedule:
     - cron: "23 3 * * 1"
   workflow_dispatch:
+    inputs:
+      run_release_llm_review:
+        description: Run the LLM public-release sensitivity preflight without publishing
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -485,6 +491,103 @@ jobs:
         if: always()
         run: docker compose --profile full --profile test down --remove-orphans -v
 
+  public-release-llm-review:
+    name: LLM public-release sensitivity review
+    if: >-
+      github.repository == 'jaminmei/doc-conv' &&
+      (
+        (
+          github.event_name == 'push' &&
+          startsWith(github.ref, 'refs/tags/v')
+        ) ||
+        (
+          github.event_name == 'workflow_dispatch' &&
+          inputs.run_release_llm_review
+        )
+      )
+    needs: [public-boundary]
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout tagged release
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Install Open Code Review
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "22"
+          registry-url: https://registry.npmjs.org
+      - shell: bash
+        run: npm install -g @alibaba-group/open-code-review@1.8.0
+
+      - name: Review the public release surface
+        shell: bash
+        env:
+          OCR_LLM_URL: ${{ secrets.OCR_LLM_URL }}
+          OCR_LLM_TOKEN: ${{ secrets.OCR_LLM_TOKEN }}
+          OCR_LLM_MODEL: ${{ vars.OCR_LLM_MODEL }}
+          OCR_USE_ANTHROPIC: ${{ vars.OCR_LLM_USE_ANTHROPIC }}
+        run: |
+          set -euo pipefail
+          for variable in OCR_LLM_URL OCR_LLM_TOKEN OCR_LLM_MODEL OCR_USE_ANTHROPIC; do
+            if [[ -z "${!variable:-}" ]]; then
+              echo "::error::Required LLM release-review configuration is missing."
+              exit 1
+            fi
+          done
+          case "$OCR_USE_ANTHROPIC" in
+            true|false) ;;
+            *)
+              echo "::error::OCR_LLM_USE_ANTHROPIC must be true or false."
+              exit 1
+              ;;
+          esac
+
+          # Keep prompts and model responses out of all telemetry and workflow logs.
+          ocr config set telemetry.enabled false >/dev/null 2>&1
+          result_path="$RUNNER_TEMP/ocr-public-release-result.json"
+          error_path="$RUNNER_TEMP/ocr-public-release-stderr.log"
+          excluded_paths='AGENTS.md,.claude/**,memory/**,wiki/**'
+          previous_tag="$(git describe --tags --abbrev=0 "${GITHUB_SHA}^" --match 'v[0-9]*' 2>/dev/null || true)"
+
+          if [[ -n "$previous_tag" ]]; then
+            ocr review \
+              --from "$previous_tag" \
+              --to "$GITHUB_SHA" \
+              --rule .github/public-release-review-rules.json \
+              --exclude "$excluded_paths" \
+              --concurrency 2 \
+              --timeout 15 \
+              --format json \
+              --audience agent \
+              >"$result_path" 2>"$error_path" || {
+                echo "::error::LLM public-release sensitivity review did not complete."
+                exit 1
+              }
+          else
+            ocr scan \
+              --rule .github/public-release-review-rules.json \
+              --exclude "$excluded_paths" \
+              --concurrency 2 \
+              --timeout 15 \
+              --format json \
+              --audience agent \
+              >"$result_path" 2>"$error_path" || {
+                echo "::error::LLM public-release sensitivity review did not complete."
+                exit 1
+              }
+          fi
+
+          python3 scripts/check_public_release_llm.py \
+            --result "$result_path" \
+            --github-annotations \
+            --github-step-summary "$GITHUB_STEP_SUMMARY"
+
   publish-pressroom:
     name: Open PressRoom release pull request
     if: >-
@@ -494,6 +597,7 @@ jobs:
     needs:
       [
         public-boundary,
+        public-release-llm-review,
         python-quality,
         dependency-audit,
         frontend-quality,
@@ -529,6 +633,16 @@ jobs:
           [[ "$tag_commit" == "$main_commit" ]]
           printf 'tag=%s\ncommit=%s\n' "$tag" "$tag_commit" >> "$GITHUB_OUTPUT"
 
+      - name: Prepare the filtered PressRoom release tree
+        id: release-surface
+        shell: bash
+        env:
+          RELEASE_COMMIT: ${{ steps.release.outputs.commit }}
+        run: >-
+          python3 scripts/prepare_pressroom_release.py
+          --commit "$RELEASE_COMMIT"
+          --github-output "$GITHUB_OUTPUT"
+
       - name: Create scoped PressRoom installation token
         id: pressroom-token
         uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2
@@ -545,6 +659,7 @@ jobs:
           PRESSROOM_TOKEN: ${{ steps.pressroom-token.outputs.token }}
           RELEASE_TAG: ${{ steps.release.outputs.tag }}
           RELEASE_COMMIT: ${{ steps.release.outputs.commit }}
+          RELEASE_TREE: ${{ steps.release-surface.outputs.release_tree }}
         run: |
           set -euo pipefail
           branch="publish/${RELEASE_TAG}"
@@ -554,7 +669,8 @@ jobs:
             refs/heads/main:refs/remotes/pressroom/main
           target_commit="$(git rev-parse refs/remotes/pressroom/main)"
           target_tree="$(git rev-parse "${target_commit}^{tree}")"
-          release_tree="$(git rev-parse "${RELEASE_COMMIT}^{tree}")"
+          release_tree="$RELEASE_TREE"
+          git cat-file -e "${release_tree}^{tree}"
           printf 'branch=%s\n' "$branch" >> "$GITHUB_OUTPUT"
           if [[ "$target_tree" == "$release_tree" ]]; then
             printf 'already_released=true\n' >> "$GITHUB_OUTPUT"

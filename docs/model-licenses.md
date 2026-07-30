@@ -2,7 +2,7 @@
 
 ## Source-tree policy
 
-Document Conversion 0.2.0 does not store learned-model weights in this repository. Files under engine `models/` directories are configuration or metadata only. Model artifacts may instead arrive inside an installed dependency, be downloaded to a runtime cache, or be served by an operator-selected external Provider.
+Document Conversion 0.2.11 does not store learned-model weights in this repository. Files under engine `models/` directories are configuration or metadata only. Model artifacts may instead arrive inside an installed dependency, be downloaded to a runtime cache, or be served by an operator-selected external Provider.
 
 Dependency version locks do not establish a model artifact's license. Before deployment or redistribution, the operator must verify the exact model revision, source, license, acceptable-use terms, and checksum.
 

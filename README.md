@@ -2,7 +2,7 @@
 
 Document Conversion is a self-hosted workspace for building, running, and evaluating document-processing workflows. It combines a visual workflow editor with OCR, layout detection, image preprocessing, document conversion, and vision-language-model adapters.
 
-This repository contains the public **0.2.0** core source release. Workspace isolation is enabled in every supported public deployment.
+This repository contains the public **0.2.11** core source release. Workspace isolation is enabled in every supported public deployment.
 
 ## Highlights
 
@@ -23,7 +23,7 @@ This repository contains the public **0.2.0** core source release. Workspace iso
 
 ## Release format
 
-Version 0.2.0 is distributed as source code only. The project does not publish prebuilt Docker/OCI images to GHCR, Docker Hub, or another container registry. The Compose commands below build the project images locally from the checked-in Dockerfiles.
+Version 0.2.11 is distributed as source code only. The project does not publish prebuilt Docker/OCI images to GHCR, Docker Hub, or another container registry. The Compose commands below build the project images locally from the checked-in Dockerfiles.
 
 Locally built images contain third-party base images, Python and npm packages, and system components such as Poppler. Packages such as `certifi` also retain their own terms. Review [Third-Party Notices](THIRD_PARTY_NOTICES.md), the lockfiles, and the license metadata shipped by those components before redistributing an image.
 

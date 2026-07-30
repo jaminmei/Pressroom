@@ -1,0 +1,58 @@
+name: Open Code Review
+
+on:
+  pull_request:
+    branches: [develop, main]
+    types: [opened, synchronize, reopened, ready_for_review]
+
+# This workflow only needs read access to source plus the two scopes used to
+# publish inline review comments and maintain the PR summary comment.
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+concurrency:
+  group: open-code-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    name: AI review
+    # Do not expose the LLM credentials to pull requests from forked repositories.
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Validate OCR configuration
+        shell: bash
+        env:
+          OCR_LLM_URL: ${{ secrets.OCR_LLM_URL }}
+          OCR_LLM_TOKEN: ${{ secrets.OCR_LLM_TOKEN }}
+          OCR_LLM_MODEL: ${{ vars.OCR_LLM_MODEL }}
+          OCR_USE_ANTHROPIC: ${{ vars.OCR_LLM_USE_ANTHROPIC }}
+        run: |
+          set -euo pipefail
+          missing=0
+          for variable in OCR_LLM_URL OCR_LLM_TOKEN OCR_LLM_MODEL OCR_USE_ANTHROPIC; do
+            if [[ -z "${!variable:-}" ]]; then
+              echo "::error::${variable} is not available to this workflow."
+              missing=1
+            fi
+          done
+          exit "$missing"
+
+      - name: Review pull request
+        uses: alibaba/open-code-review@e670b3b3f6b56ef63f4222148696e315268a26e2 # v1.8.0
+        with:
+          llm_url: ${{ secrets.OCR_LLM_URL }}
+          llm_auth_token: ${{ secrets.OCR_LLM_TOKEN }}
+          llm_model: ${{ vars.OCR_LLM_MODEL }}
+          llm_use_anthropic: ${{ vars.OCR_LLM_USE_ANTHROPIC }}
+          language: "中文"
+          ocr_version: "1.8.0"
+          review_concurrency: "2"
+          sticky_summary: "true"
+          incremental: "true"
+          # Do not retain raw review result files as GitHub Action artifacts.
+          upload_artifacts: "false"

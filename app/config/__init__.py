@@ -31,7 +31,7 @@ RUNTIME_ATTESTATION_RESPONSE_PREFIX = b"docconv/runtime-attestation/response/v1\
 
 class Settings(BaseSettings):
     app_name: str = "Document Conversion"
-    app_version: str = "0.2.0"
+    app_version: str = "0.2.11"
     storage_root: str = "./storage"
     temp_dir: str = str(tempfile.gettempdir())
 
