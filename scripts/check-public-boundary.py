@@ -45,6 +45,8 @@ PUBLIC_SCRIPT_FILES = {
     "check-license-scope.py",
     "check-frontend-audit.py",
     "check-public-boundary.py",
+    "check_public_release_llm.py",
+    "check_public_release_llm_test.py",
     "check_release_provenance.py",
     "check_release_provenance_test.py",
     "check-rbac-test-coverage.sh",
@@ -59,6 +61,8 @@ PUBLIC_SCRIPT_FILES = {
     "init-db.sql",
     "migrate_vlm_to_model.py",
     "public-binary-assets.txt",
+    "prepare_pressroom_release.py",
+    "prepare_pressroom_release_test.py",
     "rehome-dataset-core.py",
     "rehome-dataset-core_test.py",
     "start_worker.sh",
@@ -236,7 +240,9 @@ def _is_deployment_config(path: Path) -> bool:
         ".yaml",
     }:
         return True
-    return len(path.parts) >= 2 and path.parts[:2] == (".github", "workflows")
+    return (len(path.parts) >= 2 and path.parts[:2] == (".github", "workflows")) or path == Path(
+        ".github/pressroom/ci.yml"
+    )
 
 
 def _dangerous_default_labels(

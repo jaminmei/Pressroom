@@ -7,6 +7,8 @@ gunicorn>=22.0.0
 # PaddlePaddle and PPStructure (primary model)
 paddlepaddle==2.6.2
 paddleocr==2.8.1
+# PaddlePaddle imports setuptools at runtime on Python 3.12.
+setuptools>=70.0.0
 
 # Image processing
 pillow>=12.3.0
