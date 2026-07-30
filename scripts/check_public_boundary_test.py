@@ -208,6 +208,22 @@ def test_rejects_sensitive_literal_fallback_in_deployment_config(tmp_path: Path)
     assert "literal fallback for a sensitive environment variable" in result.stderr
 
 
+def test_treats_pressroom_workflow_template_as_deployment_config(tmp_path: Path) -> None:
+    repo = _prepare_repo(tmp_path, "")
+    fallback = "$" + "{API_TOKEN:-example-token}"
+    template = repo / ".github/pressroom/ci.yml"
+    template.parent.mkdir(parents=True)
+    template.write_text(
+        f"env:\n  API_TOKEN: {fallback}\n",
+        encoding="utf-8",
+    )
+
+    result = _run_tree(repo)
+
+    assert result.returncode == 1
+    assert "literal fallback for a sensitive environment variable" in result.stderr
+
+
 def test_rejects_literal_dsn_credentials_in_deployment_config(tmp_path: Path) -> None:
     repo = _prepare_repo(tmp_path, "")
     (repo / "alembic.ini").write_text(
