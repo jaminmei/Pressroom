@@ -1,6 +1,8 @@
-# Project-Authored Assets
+# Project-Authored and Project-Directed Assets
 
 The project owner has confirmed that the Corgi artwork and DocConv icon set listed below are original, self-drawn works created for Document Conversion. Jamin Mei and ricoyudog hold the rights needed to publish them.
+
+The README product screenshots contain only the project UI and deterministic synthetic demonstration data. The Press Room hero combines the existing project-authored Corgi logo with an illustration generated at project direction. The separate Star banner is a project-directed original Corgi illustration generated from a text prompt. Neither generation used a third-party input image.
 
 ## Provenance manifest
 
@@ -8,12 +10,23 @@ The project owner has confirmed that the Corgi artwork and DocConv icon set list
 | --- | --- | --- | --- |
 | `frontend/public/corgi-logo.png` | Original hand-drawn Corgi mascot artwork, 2026 | Exported from the authors' source artwork as a 1254×1254 RGBA PNG; the private layered authoring file is not part of this source release | `bd5ee33d3aab3dbdac21e27794bed808a2202405dc502fc59df54c536435d461` |
 | `frontend/public/favicon.svg` | Original hand-drawn Corgi project mark, 2026 | Recreated as a compact 64×64 SVG using project-authored geometric paths | `32d560f524a26eb76ab65d5475982f297a16ade08c859dd05e440ff438d48388` |
+| `website/public/brand-mark.svg` | Project-directed code-native Corgi documentation mark, 2026 | Drawn as compact SVG geometry in the Press Room palette for the documentation navigation and favicon; no third-party source image was used | `d6601167224a291115e0618f3a1af3a150fb97b9e4b6ac511168c0d8aa92d157` |
 | `frontend/src/components/Icons/docconv-icon-paths.ts` | Original hand-drawn DocConv icon PNG set, 2026 | Vectorized with `potrace`, normalized to a 2560×2560 view box, and stored as project-authored SVG path data | `0fde815587d4a9a00ba5cd16b31a228327d95e0ee7720d66fe11bad4effd3100` |
+| `website/public/images/guides/template-center-ocr.webp` | PressRoom Template Center with public template metadata, 2026 | Captured from the local standard profile at 1600×1000 with an isolated synthetic documentation workspace; animations, user identity, notifications, and binary metadata removed before WebP export | `e1847909af4343b766e6d78b704815f253bd2ac69376444d6fee56a636297277` |
+| `website/public/images/guides/provider-configuration.webp` | PressRoom Provider configuration form with synthetic values, 2026 | Captured from the local standard profile at 1600×1000 using an `.invalid` Provider URL and masked placeholder key; animations, user identity, notifications, and binary metadata removed before WebP export | `0e388f16718569c8d6b2a683fe14d57a4c8a9395d19b3a0b2c5fceda7bb7af8f` |
+| `website/public/images/guides/api-access-setup.webp` | PressRoom API Access Setup with a synthetic published workflow, 2026 | Captured from the local standard profile at 1600×1000; workflow IDs and key prefixes were replaced with placeholders, no complete API key was rendered, and binary metadata was removed before WebP export | `a744233682a5cd9bf2d15a1185108954ebed42e6ab68b4d1cf39fef6ed9df355` |
+| `website/public/images/guides/database-ground-truth.webp` | PressRoom Database Ground Truth view with a public fixture, 2026 | Captured from the local standard profile at 1600×1000 using `frontend/e2e/fixtures/test-document.pdf` in an isolated synthetic workspace; animations, user identity, notifications, and binary metadata removed before WebP export | `c6bc676bd0e23d6f65c277bb65fdd7f4d6a2ae4b00dff467b908b0c58256e285` |
+| `website/public/images/product/press-room-hero.webp` | Project-directed AI-generated illustration and original Corgi logo, 2026 | The generated illustration was selected and cropped, then typeset and composited with `frontend/public/corgi-logo.png`; metadata-stripped and exported as a 1792×896 WebP | `656fc8285bdc2f436199876f9e52faee31324a71e6f4d892c9eeb71639041722` |
+| `website/public/images/product/press-room-hero.zh-CN.webp` | Simplified Chinese localization of the Press Room hero and original Corgi logo, 2026 | The approved hero composition was re-typeset in Simplified Chinese with a locally installed Noto Sans CJK font; metadata-stripped and exported as a 1792×896 WebP | `a6d7ccec4d7ff9e4979480106df07c5b1c57bb76e60fa55b7decadd53ffb212f` |
+| `website/public/images/product/star-corgi.webp` | Project-directed AI-generated original Corgi illustration, 2026 | Generated from a project-authored text prompt without an input image; selected, cropped, metadata-stripped, and exported as a 1600×760 WebP | `95da2a47e3d85756e8a50f049b316dc48f8158b39e15f5fb228a1a0197083047` |
+| `website/public/images/product/workflow-editor.webp` | PressRoom UI with a built-in comparison template and synthetic configuration, 2026 | Recaptured from the rebuilt local standard profile at 1600×1000 after the PressRoom brand update; the isolated documentation user was hidden and binary metadata removed before WebP export | `5e3245d086c71bcd4d53afdcde15b11d88df25123da250445e1f2876f72f538e` |
+| `website/public/images/product/evaluation-compare.webp` | PressRoom UI with deterministic synthetic OCR and Ground Truth data, 2026 | The 1600×1000 standard-profile evaluation capture was refreshed with the header from the rebuilt PressRoom profile; both regions contain only project UI and synthetic data, and binary metadata was removed before WebP export | `7b731f965c6de9b473d8e830688650a6628b383b24cdf930b58d5f28a4cb4919` |
+| `website/public/images/product/api-access.webp` | PressRoom UI with three synthetic public API invocations, 2026 | The 1600×1000 standard-profile usage capture was refreshed with the header from the rebuilt PressRoom profile; the complete one-time key was never rendered and binary metadata was removed before WebP export | `b5557956a7107726a549068189ba366e851c52ff512f2fe812bc0dd44e80a13b` |
 
 ## Copyright license
 
 Copyright (c) 2026 Jamin Mei and ricoyudog.
 
-These three distributed artifacts are licensed under the repository's [MIT License](LICENSE). The source PNGs and layered authoring files that are not distributed are outside this manifest.
+The original project artwork and UI captures are licensed under the repository's [MIT License](LICENSE). To the extent copyright or related rights subsist in the project-directed banners, Jamin Mei and ricoyudog make those rights available under the same license. Source PNGs, layered authoring files, and rejected generation drafts are not part of this source release.
 
-The copyright license and trademark rights are separate. See [TRADEMARKS.md](TRADEMARKS.md) before using the Document Conversion name, Corgi logo, or other source-identifying marks to brand a redistributed or modified product.
+The copyright license and trademark rights are separate. See [TRADEMARKS.md](TRADEMARKS.md) before using the Document Conversion or Press Room names, the Corgi logo, or other source-identifying marks to brand a redistributed or modified product.

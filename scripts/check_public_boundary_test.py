@@ -8,6 +8,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 SCRIPT = Path(__file__).with_name("check-public-boundary.py")
 PUBLIC_NAME = "ricoyudog"
 PUBLIC_EMAIL = "73219750+ricoyudog@users.noreply.github.com"
@@ -23,6 +25,9 @@ def _prepare_repo(tmp_path: Path, manifest: str) -> Path:
     frontend = repo / "frontend"
     frontend.mkdir()
     (frontend / "package-lock.json").write_text('{"packages": {}}\n', encoding="utf-8")
+    website = repo / "website"
+    website.mkdir()
+    (website / "package-lock.json").write_text('{"packages": {}}\n', encoding="utf-8")
     subprocess.run(["git", "init", "-q", "-b", "main"], cwd=repo, check=True)
     return repo
 
@@ -108,6 +113,35 @@ def test_rejects_path_outside_the_public_allowlist(tmp_path: Path) -> None:
     assert "path is outside the public allowlist" in result.stderr
 
 
+def test_ignores_tracked_files_deleted_from_the_candidate_tree(tmp_path: Path) -> None:
+    repo = _prepare_repo(tmp_path, "")
+    retired = repo / "docs/assets/readme/retired.webp"
+    retired.parent.mkdir(parents=True)
+    retired.write_bytes(b"retired-public-asset")
+    _commit_all(repo, "add retired asset")
+    retired.unlink()
+
+    result = _run_tree(repo)
+
+    assert result.returncode == 0, result.stderr
+
+
+def test_allows_only_the_approved_root_readme_localization(tmp_path: Path) -> None:
+    repo = _prepare_repo(tmp_path, "")
+    (repo / "README.md").write_text("# English\n", encoding="utf-8")
+    (repo / "README.zh-CN.md").write_text("# 简体中文\n", encoding="utf-8")
+
+    allowed = _run_tree(repo)
+
+    assert allowed.returncode == 0, allowed.stderr
+
+    (repo / "README.fr.md").write_text("# Français\n", encoding="utf-8")
+    rejected = _run_tree(repo)
+
+    assert rejected.returncode == 1
+    assert "path is outside the public allowlist: README.fr.md" in rejected.stderr
+
+
 def test_allows_only_public_playwright_and_fixture_subtrees(tmp_path: Path) -> None:
     repo = _prepare_repo(tmp_path, "")
     public_test = repo / "frontend/e2e/public/smoke.spec.ts"
@@ -155,6 +189,107 @@ def test_rejects_unknown_public_script_and_document(tmp_path: Path) -> None:
         in result.stderr
     )
     assert "path is outside the public docs allowlist: docs/release-roadmap.md" in result.stderr
+
+
+def test_allows_only_manifested_website_visual_assets(tmp_path: Path) -> None:
+    payload = b"synthetic-readme-screenshot"
+    digest = hashlib.sha256(payload).hexdigest()
+    approved_path = "website/public/images/product/workflow-editor.webp"
+    repo = _prepare_repo(tmp_path, f"{digest}  {approved_path}\n")
+    approved = repo / approved_path
+    approved.parent.mkdir(parents=True)
+    approved.write_bytes(payload)
+
+    allowed = _run_tree(repo)
+
+    assert allowed.returncode == 0, allowed.stderr
+
+    unapproved = repo / "website/public/images/product/private-dashboard.webp"
+    unapproved.write_bytes(b"not-approved")
+    rejected = _run_tree(repo)
+
+    assert rejected.returncode == 1
+    assert (
+        "unapproved binary asset: website/public/images/product/private-dashboard.webp"
+    ) in rejected.stderr
+
+
+def test_allows_only_curated_website_structure(tmp_path: Path) -> None:
+    repo = _prepare_repo(tmp_path, "")
+    approved = {
+        "website/index.md": "# Docs\n",
+        "website/zh-CN/index.md": "# 文档\n",
+        "website/getting-started/overview.md": "# Overview\n",
+        "website/.vitepress/config.mts": "export default {};\n",
+        "website/.vitepress/theme/styles/base.css": ":root {}\n",
+        "website/public/favicon.svg": "<svg xmlns='http://www.w3.org/2000/svg'/>\n",
+    }
+    for filename, content in approved.items():
+        path = repo / filename
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content, encoding="utf-8")
+
+    allowed = _run_tree(repo)
+
+    assert allowed.returncode == 0, allowed.stderr
+
+    cache = repo / "website/.vitepress/cache/private.json"
+    cache.parent.mkdir(parents=True)
+    cache.write_text("{}\n", encoding="utf-8")
+    unknown_locale = repo / "website/fr/index.md"
+    unknown_locale.parent.mkdir(parents=True)
+    unknown_locale.write_text("# Privé\n", encoding="utf-8")
+
+    rejected = _run_tree(repo)
+
+    assert rejected.returncode == 1
+    assert (
+        "path is outside the public website allowlist: website/.vitepress/cache/private.json"
+        in rejected.stderr
+    )
+    assert "path is outside the public website allowlist: website/fr/index.md" in rejected.stderr
+
+
+def test_allows_curated_public_knowledge_and_agent_aids(tmp_path: Path) -> None:
+    repo = _prepare_repo(tmp_path, "")
+    pages = {
+        "wiki/index.md": "# Wiki\n",
+        "wiki/architecture/overview.md": "# Overview\n",
+        "memory/pitfalls.md": "# Pitfalls\n",
+        "memory/session-bridge.md": "# Session Bridge\n",
+        ".claude/settings.json": "{}\n",
+        ".claude/commands/corgi/verify.md": "# Verify\n",
+        ".claude/skills/creating-backlog-issue-card/SKILL.md": "# Skill\n",
+    }
+    for name, content in pages.items():
+        path = repo / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content, encoding="utf-8")
+
+    result = _run_tree(repo)
+
+    assert result.returncode == 0
+
+
+def test_rejects_unapproved_public_knowledge_and_agent_paths(tmp_path: Path) -> None:
+    repo = _prepare_repo(tmp_path, "")
+    local_settings = repo / ".claude/settings.local.json"
+    local_settings.parent.mkdir()
+    local_settings.write_text("{}\n", encoding="utf-8")
+    subprocess.run(["git", "add", "-f", ".claude/settings.local.json"], cwd=repo, check=True)
+    screenshot = repo / "wiki/screenshots/overview.png"
+    screenshot.parent.mkdir(parents=True)
+    screenshot.write_bytes(b"not-an-approved-image")
+
+    result = _run_tree(repo)
+
+    assert result.returncode == 1
+    assert (
+        "path is outside the public Claude allowlist: .claude/settings.local.json" in result.stderr
+    )
+    assert (
+        "path is outside the public wiki allowlist: wiki/screenshots/overview.png" in result.stderr
+    )
 
 
 def test_allows_frontend_dependency_audit_script(tmp_path: Path) -> None:
@@ -375,7 +510,11 @@ def test_rejects_symbolic_links_in_source_tree(tmp_path: Path) -> None:
     assert "symbolic links are not allowed: app/linked.py" in result.stderr
 
 
-def test_rejects_non_public_npm_resolution(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    "lockfile",
+    ("frontend/package-lock.json", "website/package-lock.json"),
+)
+def test_rejects_non_public_npm_resolution(tmp_path: Path, lockfile: str) -> None:
     repo = _prepare_repo(tmp_path, "")
     lock = {
         "packages": {
@@ -384,13 +523,24 @@ def test_rejects_non_public_npm_resolution(tmp_path: Path) -> None:
             }
         }
     }
-    (repo / "frontend/package-lock.json").write_text(json.dumps(lock), encoding="utf-8")
+    (repo / lockfile).write_text(json.dumps(lock), encoding="utf-8")
 
     result = _run_tree(repo)
 
     assert result.returncode == 1
     assert "non-public npm registry for node_modules/example" in result.stderr
+    assert lockfile in result.stderr
     assert "packages.example.invalid" not in result.stderr
+
+
+def test_rejects_missing_website_lock(tmp_path: Path) -> None:
+    repo = _prepare_repo(tmp_path, "")
+    (repo / "website/package-lock.json").unlink()
+
+    result = _run_tree(repo)
+
+    assert result.returncode == 1
+    assert "website/package-lock.json is missing" in result.stderr
 
 
 def test_artifact_scan_allows_approved_binary_without_requiring_manifest_paths(

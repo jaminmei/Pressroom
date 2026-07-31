@@ -1,5 +1,15 @@
 # SHA256 and path for each binary asset approved for public distribution.
 # Synthetic fixture entries are maintained by scripts/generate-public-fixtures.py.
+a744233682a5cd9bf2d15a1185108954ebed42e6ab68b4d1cf39fef6ed9df355  website/public/images/guides/api-access-setup.webp
+c6bc676bd0e23d6f65c277bb65fdd7f4d6a2ae4b00dff467b908b0c58256e285  website/public/images/guides/database-ground-truth.webp
+0e388f16718569c8d6b2a683fe14d57a4c8a9395d19b3a0b2c5fceda7bb7af8f  website/public/images/guides/provider-configuration.webp
+e1847909af4343b766e6d78b704815f253bd2ac69376444d6fee56a636297277  website/public/images/guides/template-center-ocr.webp
+b5557956a7107726a549068189ba366e851c52ff512f2fe812bc0dd44e80a13b  website/public/images/product/api-access.webp
+7b731f965c6de9b473d8e830688650a6628b383b24cdf930b58d5f28a4cb4919  website/public/images/product/evaluation-compare.webp
+656fc8285bdc2f436199876f9e52faee31324a71e6f4d892c9eeb71639041722  website/public/images/product/press-room-hero.webp
+a6d7ccec4d7ff9e4979480106df07c5b1c57bb76e60fa55b7decadd53ffb212f  website/public/images/product/press-room-hero.zh-CN.webp
+95da2a47e3d85756e8a50f049b316dc48f8158b39e15f5fb228a1a0197083047  website/public/images/product/star-corgi.webp
+5e3245d086c71bcd4d53afdcde15b11d88df25123da250445e1f2876f72f538e  website/public/images/product/workflow-editor.webp
 8ccde3dfd4f6bf3a6216713e359e47086a7b187542226f97cebf03070a1f0866  frontend/e2e/fixtures/test-document.pdf
 705d683691dcef20ce3258d0b39faea22754dc37c3149eb3e88770f99bfa692f  frontend/e2e/fixtures/test-image.png
 76b56ea341c6cd8a5d1becaf1764b36073e9e34f08cec90fd245f2312f1beea1  frontend/e2e/fixtures/test-single-page.pdf

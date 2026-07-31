@@ -14,6 +14,7 @@ htmlcov/
 .env
 .env.*
 !.env.example
+.claude/settings.local.json
 /storage/
 temp/
 artifacts/
@@ -25,6 +26,11 @@ frontend/node_modules/
 frontend/dist/
 frontend/playwright-report/
 frontend/test-results/
+website/.vitepress/cache/
+website/.vitepress/dist/
+
+# Local documentation workspace metadata
+.obsidian/
 
 # Editors and operating systems
 .vscode/

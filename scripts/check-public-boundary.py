@@ -18,6 +18,10 @@ INITIAL_RELEASE_NAME = "ricoyudog"
 INITIAL_RELEASE_EMAIL = "73219750+ricoyudog@users.noreply.github.com"
 PUBLIC_NPM_REGISTRY = "registry.npmjs.org"
 PUBLIC_GIT_HOST = "github.com"
+PUBLIC_NPM_LOCKS = (
+    Path("frontend/package-lock.json"),
+    Path("website/package-lock.json"),
+)
 PUBLIC_E2E_SUBTREES = {"fixtures", "public"}
 PUBLIC_FRONTEND_ROOTS = {
     ".dockerignore",
@@ -74,9 +78,75 @@ PUBLIC_DOC_FILES = {
     "dependency-audit-exceptions.md",
     "model-licenses.md",
 }
+PUBLIC_WEBSITE_ROOT_FILES = {
+    ".npmrc",
+    "404.md",
+    "index.md",
+    "package-lock.json",
+    "package.json",
+}
+PUBLIC_WEBSITE_PAGE_PATHS = {
+    "administration/security-and-troubleshooting.md",
+    "api-reference/workflow-api.md",
+    "concepts/core-concepts.md",
+    "deployment/compose.md",
+    "evaluation/databases.md",
+    "evaluation/ground-truth.md",
+    "getting-started/first-workflow.md",
+    "getting-started/installation.md",
+    "getting-started/overview.md",
+    "publish/api-access.md",
+    "workflows/editor-and-nodes.md",
+    "workflows/providers.md",
+    "workflows/run-and-results.md",
+    "workflows/studio-and-templates.md",
+}
+PUBLIC_WEBSITE_TEXT_ASSETS = {
+    "brand-mark.svg",
+    "favicon.svg",
+    "robots.txt",
+}
+PUBLIC_WEBSITE_IMAGE_SUBTREES = {
+    "guides",
+    "product",
+}
+PUBLIC_CLAUDE_FILES = {
+    "README.md",
+    "settings.json",
+    "commands/corgi/apply.md",
+    "commands/corgi/archive.md",
+    "commands/corgi/converge.md",
+    "commands/corgi/explore.md",
+    "commands/corgi/install.md",
+    "commands/corgi/lint.md",
+    "commands/corgi/loop.md",
+    "commands/corgi/propose.md",
+    "commands/corgi/ready.md",
+    "commands/corgi/review.md",
+    "commands/corgi/update.md",
+    "commands/corgi/verify.md",
+    "skills/creating-backlog-issue-card/SKILL.md",
+    "skills/creating-backlog-issue-card/reference.md",
+}
+PUBLIC_MEMORY_FILES = {
+    "pitfalls.md",
+    "session-bridge.md",
+}
+PUBLIC_WIKI_ROOT_FILES = {
+    "hot.md",
+    "index.md",
+    "log.md",
+}
+PUBLIC_WIKI_SUBTREES = {
+    "architecture",
+    "decisions",
+    "patterns",
+    "questions",
+}
 
 ALLOWED_ROOTS = {
     ".dockerignore",
+    ".claude",
     ".env.example",
     ".gitattributes",
     ".github",
@@ -91,6 +161,7 @@ ALLOWED_ROOTS = {
     "LICENSE",
     "LICENSES",
     "README.md",
+    "README.zh-CN.md",
     "SECURITY.md",
     "THIRD_PARTY_NOTICES.md",
     "TRADEMARKS.md",
@@ -101,6 +172,7 @@ ALLOWED_ROOTS = {
     "docs",
     "engines",
     "frontend",
+    "memory",
     "pyproject.toml",
     "requirements-dev.lock",
     "requirements-dev.txt",
@@ -108,6 +180,8 @@ ALLOWED_ROOTS = {
     "requirements.txt",
     "scripts",
     "tests",
+    "website",
+    "wiki",
 }
 
 BINARY_SUFFIXES = {
@@ -180,7 +254,17 @@ def _git_paths(include_untracked: bool) -> list[Path]:
     result = _run_git(*args)
     if result.returncode != 0:
         raise RuntimeError("git could not enumerate the public tree")
-    return [Path(raw.decode()) for raw in result.stdout.split(b"\0") if raw]
+    paths = [Path(raw.decode()) for raw in result.stdout.split(b"\0") if raw]
+    # `git ls-files --cached` also reports tracked files that are unstaged for
+    # deletion. They are not part of the candidate worktree that will be
+    # exported. Ask Git explicitly so index-only entries such as a newly added
+    # gitlink still reach the boundary checks.
+    deleted = _run_git("ls-files", "-z", "--deleted")
+    if deleted.returncode != 0:
+        raise RuntimeError("git could not enumerate deleted public-tree paths")
+    deleted_paths = {Path(raw.decode()) for raw in deleted.stdout.split(b"\0") if raw}
+    gitlinks = _gitlink_paths()
+    return [path for path in paths if path not in deleted_paths or path.as_posix() in gitlinks]
 
 
 def _gitlink_paths() -> set[str]:
@@ -311,6 +395,38 @@ def _read_text(path: Path) -> tuple[str | None, str | None]:
     return data.decode("utf-8", errors="ignore"), None
 
 
+def _is_public_website_path(relative: Path) -> bool:
+    parts = relative.parts
+    if not parts or parts[0] != "website" or len(parts) < 2:
+        return False
+    website_path = "/".join(parts[1:])
+    if len(parts) == 2 and parts[1] in PUBLIC_WEBSITE_ROOT_FILES:
+        return True
+    if website_path in PUBLIC_WEBSITE_PAGE_PATHS:
+        return True
+    if parts[1] == "zh-CN":
+        localized_path = "/".join(parts[2:])
+        return localized_path == "index.md" or localized_path in PUBLIC_WEBSITE_PAGE_PATHS
+    if parts[1] == ".vitepress":
+        is_config = len(parts) == 3 and parts[2] in {"config.mts", "config.ts"}
+        is_theme_source = (
+            len(parts) >= 4
+            and parts[2] == "theme"
+            and relative.suffix.lower() in {".css", ".ts", ".vue"}
+        )
+        return is_config or is_theme_source
+    if parts[1] == "public":
+        if len(parts) == 3 and parts[2] in PUBLIC_WEBSITE_TEXT_ASSETS:
+            return True
+        return (
+            len(parts) == 5
+            and parts[2] == "images"
+            and parts[3] in PUBLIC_WEBSITE_IMAGE_SUBTREES
+            and relative.suffix.lower() in {".jpeg", ".jpg", ".png", ".webp"}
+        )
+    return False
+
+
 def check_tree(paths: list[Path], private_patterns: list[re.Pattern[str]]) -> list[str]:
     errors: list[str] = []
     try:
@@ -344,6 +460,25 @@ def check_tree(paths: list[Path], private_patterns: list[re.Pattern[str]]) -> li
         if parts[0] == "docs" and "/".join(parts[1:]) not in PUBLIC_DOC_FILES:
             errors.append(f"path is outside the public docs allowlist: {relative_posix}")
             continue
+        if parts[0] == "website" and not _is_public_website_path(relative):
+            errors.append(f"path is outside the public website allowlist: {relative_posix}")
+            continue
+        if parts[0] == ".claude" and "/".join(parts[1:]) not in PUBLIC_CLAUDE_FILES:
+            errors.append(f"path is outside the public Claude allowlist: {relative_posix}")
+            continue
+        if parts[0] == "memory" and "/".join(parts[1:]) not in PUBLIC_MEMORY_FILES:
+            errors.append(f"path is outside the public memory allowlist: {relative_posix}")
+            continue
+        if parts[0] == "wiki":
+            is_root_page = len(parts) == 2 and parts[1] in PUBLIC_WIKI_ROOT_FILES
+            is_public_page = (
+                len(parts) >= 3
+                and parts[1] in PUBLIC_WIKI_SUBTREES
+                and relative.suffix.lower() == ".md"
+            )
+            if not (is_root_page or is_public_page):
+                errors.append(f"path is outside the public wiki allowlist: {relative_posix}")
+                continue
         if relative_posix in gitlinks:
             errors.append(f"gitlinks and submodules are not allowed: {relative_posix}")
             continue
@@ -382,22 +517,23 @@ def check_tree(paths: list[Path], private_patterns: list[re.Pattern[str]]) -> li
 
     missing = set(approved_binaries) - present
     errors.extend(f"approved binary missing from tree: {path}" for path in sorted(missing))
-    errors.extend(_check_npm_registry())
+    errors.extend(_check_npm_registries())
     return errors
 
 
-def _check_npm_registry() -> list[str]:
-    lock_path = REPO_ROOT / "frontend/package-lock.json"
+def _check_npm_lock(lock_relative: Path) -> list[str]:
+    lock_display = lock_relative.as_posix()
+    lock_path = REPO_ROOT / lock_relative
     if not lock_path.exists():
-        return ["frontend/package-lock.json is missing"]
+        return [f"{lock_display} is missing"]
     try:
         lock = json.loads(lock_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
-        return ["frontend/package-lock.json cannot be parsed"]
+        return [f"{lock_display} cannot be parsed"]
 
     packages = lock.get("packages", {})
     if not isinstance(packages, dict):
-        return ["frontend/package-lock.json has no packages map"]
+        return [f"{lock_display} has no packages map"]
     errors: list[str] = []
     for package_path, metadata in packages.items():
         if not isinstance(metadata, dict):
@@ -406,7 +542,7 @@ def _check_npm_registry() -> list[str]:
         if resolved is None:
             continue
         if not isinstance(resolved, str):
-            errors.append(f"invalid npm resolution for {package_path}")
+            errors.append(f"invalid npm resolution for {package_path} in {lock_display}")
             continue
         parsed = urlparse(resolved)
         try:
@@ -421,7 +557,14 @@ def _check_npm_registry() -> list[str]:
             or port not in {None, 443}
             or not parsed.path.startswith("/")
         ):
-            errors.append(f"non-public npm registry for {package_path}")
+            errors.append(f"non-public npm registry for {package_path} in {lock_display}")
+    return errors
+
+
+def _check_npm_registries() -> list[str]:
+    errors: list[str] = []
+    for lock_relative in PUBLIC_NPM_LOCKS:
+        errors.extend(_check_npm_lock(lock_relative))
     return errors
 
 

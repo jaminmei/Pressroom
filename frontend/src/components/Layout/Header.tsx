@@ -122,7 +122,7 @@ export default function Header() {
       <header className="app-header" data-testid="app-header">
         <div className="app-header-brand-group">
           <button
-            aria-label="DocumentConversion"
+            aria-label="PressRoom"
             className="app-brand"
             data-testid="app-brand"
             onClick={() => {
@@ -135,7 +135,7 @@ export default function Header() {
             <CorgiLogo size={36} />
             <span className="app-brand-copy">
               <span className="app-brand-eyebrow">{t("layout:eyebrow")}</span>
-              <span className="app-brand-title">Document Conversion</span>
+              <span className="app-brand-title">PressRoom</span>
             </span>
           </button>
 

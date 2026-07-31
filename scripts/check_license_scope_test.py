@@ -23,7 +23,8 @@ def _prepare_repo(tmp_path: Path) -> Path:
     )
     (repo / "README.md").write_text("engines/text/** uses GPL-3.0-only\n", encoding="utf-8")
     (repo / "THIRD_PARTY_NOTICES.md").write_text(
-        "html2text==2020.1.16 is GPL-3.0-only\n",
+        "html2text==2020.1.16 is GPL-3.0-only; dependency locks are "
+        "`frontend/package-lock.json` and `website/package-lock.json`.\n",
         encoding="utf-8",
     )
     (text_engine / "README.md").write_text(
@@ -75,6 +76,20 @@ def test_rejects_missing_text_engine_spdx_header(tmp_path: Path) -> None:
 
     assert result.returncode == 1
     assert "Text engine file lacks the GPL SPDX header" in result.stderr
+
+
+def test_rejects_missing_website_lock_notice(tmp_path: Path) -> None:
+    repo = _prepare_repo(tmp_path)
+    notices = repo / "THIRD_PARTY_NOTICES.md"
+    notices.write_text(
+        "html2text==2020.1.16 is GPL-3.0-only; dependency lock is `frontend/package-lock.json`.\n",
+        encoding="utf-8",
+    )
+
+    result = _run(repo)
+
+    assert result.returncode == 1
+    assert "third-party notices must identify website/package-lock.json" in result.stderr
 
 
 def test_ignores_generated_python_bytecode(tmp_path: Path) -> None:

@@ -24,7 +24,19 @@ MANIFEST_HEADER = (
     "# SHA256 and path for each binary asset approved for public distribution.\n"
     "# Synthetic fixture entries are maintained by scripts/generate-public-fixtures.py.\n"
 )
-MANUALLY_MAINTAINED_ASSETS = ("frontend/public/corgi-logo.png",)
+MANUALLY_MAINTAINED_ASSETS = (
+    "website/public/images/guides/api-access-setup.webp",
+    "website/public/images/guides/database-ground-truth.webp",
+    "website/public/images/guides/provider-configuration.webp",
+    "website/public/images/guides/template-center-ocr.webp",
+    "website/public/images/product/api-access.webp",
+    "website/public/images/product/evaluation-compare.webp",
+    "website/public/images/product/press-room-hero.webp",
+    "website/public/images/product/press-room-hero.zh-CN.webp",
+    "website/public/images/product/star-corgi.webp",
+    "website/public/images/product/workflow-editor.webp",
+    "frontend/public/corgi-logo.png",
+)
 
 # Five-bit-wide, seven-row glyphs. Each integer is one row, most-significant
 # pixel first. The glyphs are original project test data distributed under MIT.

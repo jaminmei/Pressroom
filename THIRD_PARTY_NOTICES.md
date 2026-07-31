@@ -1,8 +1,8 @@
 # Third-Party Notices
 
-Document Conversion depends on open-source software distributed under its own license terms. Major components include FastAPI, SQLAlchemy, Alembic, Celery, Redis client libraries, Pydantic, HTTPX, React, Ant Design, React Router, Vite, Vitest, Playwright, OpenAI's Python SDK, OCR and image-processing libraries, MarkItDown, and Docling.
+Document Conversion depends on open-source software distributed under its own license terms. Major components include FastAPI, SQLAlchemy, Alembic, Celery, Redis client libraries, Pydantic, HTTPX, React, Ant Design, React Router, Vite, Vitest, Playwright, VitePress, Vue, OpenAI's Python SDK, OCR and image-processing libraries, MarkItDown, and Docling.
 
-The authoritative dependency set and versions are recorded in the checked-in Python hash lockfiles and `frontend/package-lock.json`. Package distributions include their applicable license metadata. Container base images and system packages are governed by their respective licenses.
+The authoritative dependency set and versions are recorded in the checked-in Python hash lockfiles, `frontend/package-lock.json`, and `website/package-lock.json`. Package distributions include their applicable license metadata. Container base images and system packages are governed by their respective licenses.
 
 ## Text engine and html2text
 

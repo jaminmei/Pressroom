@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <defs>
+    <linearGradient id="bg" x1="8" y1="6" x2="57" y2="60" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#8D53FF"/>
+      <stop offset="1" stop-color="#5741D8"/>
+    </linearGradient>
+    <linearGradient id="fur" x1="20" y1="18" x2="44" y2="50" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFCF7A"/>
+      <stop offset="1" stop-color="#E6903F"/>
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="17" fill="url(#bg)"/>
+  <path d="M18 28 14 13c-.4-1.7 1.5-2.8 2.8-1.7l10.5 9.2M46 28l4-15c.4-1.7-1.5-2.8-2.8-1.7l-10.5 9.2" fill="url(#fur)" stroke="#4A2B37" stroke-width="2.6" stroke-linejoin="round"/>
+  <path d="M15.8 33.2c0-10 7.2-17.5 16.2-17.5s16.2 7.5 16.2 17.5c0 10.8-6.8 18.7-16.2 18.7s-16.2-8-16.2-18.7Z" fill="url(#fur)" stroke="#4A2B37" stroke-width="2.6"/>
+  <path d="M32 17c-4.7 3.7-7.2 8.8-7.2 15.5 0 6.4 2.7 14 7.2 18.2 4.5-4.2 7.2-11.8 7.2-18.2C39.2 25.8 36.7 20.7 32 17Z" fill="#FFF4DE"/>
+  <path d="M21.2 16.8 17.5 13l2.2 8.3M42.8 16.8l3.7-3.8-2.2 8.3" fill="#B96545"/>
+  <ellipse cx="25.6" cy="32.9" rx="2" ry="2.4" fill="#3A2931"/>
+  <ellipse cx="38.4" cy="32.9" rx="2" ry="2.4" fill="#3A2931"/>
+  <path d="M28.5 39.2c0-1.5 1.6-2.5 3.5-2.5s3.5 1 3.5 2.5c0 1.4-1.6 3-3.5 3s-3.5-1.6-3.5-3Z" fill="#3A2931"/>
+  <path d="M32 42.1v2.2m0 0c-2.2 0-3.6-1-4.2-2m4.2 2c2.2 0 3.6-1 4.2-2" fill="none" stroke="#3A2931" stroke-width="1.7" stroke-linecap="round"/>
+  <circle cx="22" cy="39" r="2.5" fill="#E97466" fill-opacity=".42"/>
+  <circle cx="42" cy="39" r="2.5" fill="#E97466" fill-opacity=".42"/>
+</svg>
