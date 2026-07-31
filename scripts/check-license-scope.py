@@ -48,6 +48,9 @@ def _check_license_documents(repo_root: Path) -> list[str]:
     expected_dependency = f"{GPL_DEPENDENCY}=={GPL_DEPENDENCY_VERSION}"
     if expected_dependency not in notices or "GPL-3.0-only" not in notices:
         errors.append("third-party notices must document the pinned GPL dependency")
+    for lockfile in ("frontend/package-lock.json", "website/package-lock.json"):
+        if f"`{lockfile}`" not in notices:
+            errors.append(f"third-party notices must identify {lockfile}")
     if "engines/text/**" not in text_readme or "GPL-3.0-only" not in text_readme:
         errors.append("Text engine README must describe its GPL scope")
     return errors

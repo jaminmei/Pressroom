@@ -17,6 +17,19 @@ GENERATED_PATHS = (
     "tests/fixtures/stress/single-page.pdf",
     "tests/fixtures/stress/single-page.png",
 )
+MANUAL_ASSET_PAYLOADS = {
+    "website/public/images/guides/api-access-setup.webp": b"docs-api-access-setup",
+    "website/public/images/guides/database-ground-truth.webp": b"docs-database-ground-truth",
+    "website/public/images/guides/provider-configuration.webp": b"docs-provider-configuration",
+    "website/public/images/guides/template-center-ocr.webp": b"docs-template-center-ocr",
+    "website/public/images/product/api-access.webp": b"readme-api-access",
+    "website/public/images/product/evaluation-compare.webp": b"readme-evaluation-compare",
+    "website/public/images/product/press-room-hero.webp": b"readme-press-room-hero",
+    "website/public/images/product/press-room-hero.zh-CN.webp": b"readme-press-room-hero-zh-cn",
+    "website/public/images/product/star-corgi.webp": b"readme-star-corgi",
+    "website/public/images/product/workflow-editor.webp": b"readme-workflow-editor",
+    "frontend/public/corgi-logo.png": b"independently-managed-logo",
+}
 
 
 def _run(repo_root: Path, *arguments: str) -> subprocess.CompletedProcess[str]:
@@ -28,17 +41,20 @@ def _run(repo_root: Path, *arguments: str) -> subprocess.CompletedProcess[str]:
     )
 
 
-def _prepare_repo(repo_root: Path) -> tuple[str, str]:
-    logo_path = "frontend/public/corgi-logo.png"
-    logo_payload = b"independently-managed-logo"
-    logo_digest = hashlib.sha256(logo_payload).hexdigest()
-    destination = repo_root / logo_path
-    destination.parent.mkdir(parents=True)
-    destination.write_bytes(logo_payload)
+def _prepare_repo(repo_root: Path) -> dict[str, str]:
+    digests: dict[str, str] = {}
+    for relative_path, payload in MANUAL_ASSET_PAYLOADS.items():
+        destination = repo_root / relative_path
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes(payload)
+        digests[relative_path] = hashlib.sha256(payload).hexdigest()
     manifest = repo_root / "scripts/public-binary-assets.txt"
     manifest.parent.mkdir(parents=True)
-    manifest.write_text(f"{logo_digest}  {logo_path}\n", encoding="utf-8")
-    return logo_path, logo_digest
+    manifest.write_text(
+        "".join(f"{digest}  {path}\n" for path, digest in sorted(digests.items())),
+        encoding="utf-8",
+    )
+    return digests
 
 
 def _parse_png(payload: bytes) -> tuple[int, int, bytes]:
@@ -75,7 +91,7 @@ def _parse_png(payload: bytes) -> tuple[int, int, bytes]:
 
 
 def test_generation_is_deterministic_and_structurally_valid(tmp_path: Path) -> None:
-    logo_path, logo_digest = _prepare_repo(tmp_path)
+    manual_asset_digests = _prepare_repo(tmp_path)
 
     first_result = _run(tmp_path)
     assert first_result.returncode == 0, first_result.stderr
@@ -89,7 +105,8 @@ def test_generation_is_deterministic_and_structurally_valid(tmp_path: Path) -> N
     assert first_manifest == (tmp_path / "scripts/public-binary-assets.txt").read_bytes()
 
     manifest_text = first_manifest.decode("utf-8")
-    assert f"{logo_digest}  {logo_path}" in manifest_text
+    for path, digest in manual_asset_digests.items():
+        assert f"{digest}  {path}" in manifest_text
     for path, payload in first_payloads.items():
         assert f"{hashlib.sha256(payload).hexdigest()}  {path}" in manifest_text
         if path.endswith(".pdf"):
@@ -145,7 +162,7 @@ def test_check_detects_manifest_mismatch_without_writing(tmp_path: Path) -> None
     assert manifest.read_bytes() == manifest_before
 
 
-def test_check_rejects_an_eighth_binary_manifest_entry(tmp_path: Path) -> None:
+def test_check_rejects_an_unexpected_binary_manifest_entry(tmp_path: Path) -> None:
     _prepare_repo(tmp_path)
     assert _run(tmp_path).returncode == 0
     manifest = tmp_path / "scripts/public-binary-assets.txt"

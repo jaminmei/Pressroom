@@ -6,7 +6,7 @@ interface CorgiLogoProps {
 export default function CorgiLogo({ size = 28, className }: CorgiLogoProps) {
   return (
     <img
-      alt="Document Conversion"
+      alt="PressRoom"
       className={className}
       draggable={false}
       height={size}

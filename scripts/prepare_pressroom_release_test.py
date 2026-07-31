@@ -54,6 +54,11 @@ def _create_commit(repository: Path, *, include_template: bool = True) -> str:
         "tests/unit/test_public_api.py": "def test_public_api():\n    assert True\n",
         "frontend/e2e/public/release.spec.ts": "// Public release coverage\n",
         "frontend/e2e/fixtures/synthetic.txt": "SYNTHETIC PUBLIC FIXTURE\n",
+        "website/index.md": "# Press Room Docs\n",
+        "website/zh-CN/index.md": "# Press Room 文档\n",
+        "website/package.json": '{"private": true}\n',
+        "website/package-lock.json": '{"packages": {}}\n',
+        "website/public/images/product/workflow-editor.webp": b"synthetic-docs-image",
     }
     if include_template:
         files[PRESSROOM_WORKFLOW_SOURCE] = PRESSROOM_WORKFLOW
@@ -82,7 +87,8 @@ def _workflow_jobs(path: Path) -> set[str]:
 
 
 def test_source_and_pressroom_workflows_have_disjoint_job_sets() -> None:
-    source_jobs = _workflow_jobs(REPOSITORY / ".github/workflows/ci.yml")
+    source_path = REPOSITORY / ".github/workflows/ci.yml"
+    source_jobs = _workflow_jobs(source_path)
     pressroom_jobs = _workflow_jobs(REPOSITORY / PRESSROOM_WORKFLOW_SOURCE)
 
     assert source_jobs == {
@@ -90,6 +96,7 @@ def test_source_and_pressroom_workflows_have_disjoint_job_sets() -> None:
         "python-quality",
         "dependency-audit",
         "frontend-quality",
+        "website-quality",
         "standard-compose",
         "full-queue",
         "public-release-llm-review",
@@ -99,10 +106,41 @@ def test_source_and_pressroom_workflows_have_disjoint_job_sets() -> None:
         "public-boundary",
         "release-provenance",
         "finalize-pressroom-release",
+        "website-pages-build",
+        "deploy-pages",
     }
     assert "Open Code Review" not in (REPOSITORY / PRESSROOM_WORKFLOW_SOURCE).read_text(
         encoding="utf-8"
     )
+    source_workflow = source_path.read_text(encoding="utf-8")
+    assert "actions/configure-pages@" not in source_workflow
+    assert "actions/upload-pages-artifact@" not in source_workflow
+    assert "actions/deploy-pages@" not in source_workflow
+    source = yaml.load(source_workflow, Loader=yaml.BaseLoader)
+    assert "website-quality" in source["jobs"]["publish-pressroom"]["needs"]
+
+
+def test_pressroom_pages_jobs_are_main_only_and_least_privilege() -> None:
+    workflow = yaml.load(
+        (REPOSITORY / PRESSROOM_WORKFLOW_SOURCE).read_text(encoding="utf-8"),
+        Loader=yaml.BaseLoader,
+    )
+    jobs = workflow["jobs"]
+    build = jobs["website-pages-build"]
+    deploy = jobs["deploy-pages"]
+
+    assert set(build["needs"]) == {"public-boundary", "release-provenance"}
+    assert build["permissions"] == {"contents": "read"}
+    assert "github.repository == 'jaminmei/Pressroom'" in build["if"]
+    assert set(deploy["needs"]) == {"website-pages-build", "finalize-pressroom-release"}
+    assert deploy["permissions"] == {
+        "contents": "read",
+        "pages": "write",
+        "id-token": "write",
+    }
+    assert deploy["environment"]["name"] == "github-pages"
+    assert "github.repository == 'jaminmei/Pressroom'" in deploy["if"]
+    assert "github.ref == 'refs/heads/main'" in deploy["if"]
 
 
 def test_filters_pressroom_only_paths_from_release_tree(tmp_path: Path) -> None:
@@ -126,6 +164,11 @@ def test_filters_pressroom_only_paths_from_release_tree(tmp_path: Path) -> None:
         "frontend/e2e/fixtures/synthetic.txt",
         "frontend/e2e/public/release.spec.ts",
         "tests/unit/test_public_api.py",
+        "website/index.md",
+        "website/package-lock.json",
+        "website/package.json",
+        "website/public/images/product/workflow-editor.webp",
+        "website/zh-CN/index.md",
     ]
     assert [path for path in release_paths if path.startswith(".github/workflows/")] == [
         PRESSROOM_WORKFLOW_TARGET
@@ -149,6 +192,14 @@ def test_filters_pressroom_only_paths_from_release_tree(tmp_path: Path) -> None:
     )
     assert _git_bytes(tmp_path, "show", f"{trees['release_tree']}:app/main.py") == (
         b"print('public')\n"
+    )
+    assert (
+        _git_bytes(
+            tmp_path,
+            "show",
+            f"{trees['release_tree']}:website/public/images/product/workflow-editor.webp",
+        )
+        == b"synthetic-docs-image"
     )
 
 
