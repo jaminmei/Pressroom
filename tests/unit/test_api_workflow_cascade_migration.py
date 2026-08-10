@@ -13,6 +13,8 @@ from sqlalchemy.orm import sessionmaker
 from app.db.base import Base
 from app.models.db.api_invocation import ApiInvocation
 from app.models.db.api_key import ApiKey
+from app.models.db.workflow_record import WorkflowRecord
+from app.models.db.workflow_version_record import WorkflowVersionRecord
 from app.models.workflow import WorkflowDefinition
 from app.services.database_workflow_store import DatabaseWorkflowStore
 
@@ -170,4 +172,85 @@ def test_workflow_store_delete_removes_only_its_api_credentials_and_usage(
         assert session.scalars(select(ApiKey.id)).all() == ["key_second"]
         assert session.scalars(select(ApiInvocation.id)).all() == ["inv_second"]
     assert store.get(second.id, workspace_id="ws_second") is not None
+    engine.dispose()
+
+
+def test_workflow_store_delete_removes_versions_before_head_and_repeat_delete_is_false(
+    tmp_path: Path,
+) -> None:
+    engine = create_engine(f"sqlite+pysqlite:///{tmp_path / 'store-delete-versions.sqlite3'}")
+    Base.metadata.create_all(engine)
+    session_factory = sessionmaker(bind=engine, expire_on_commit=False)
+    store = DatabaseWorkflowStore(session_factory=session_factory)
+
+    created = store.create(
+        name="Versioned",
+        definition=WorkflowDefinition(nodes=[], connections=[]),
+        workspace_id="ws_versions",
+    )
+    updated = store.save(
+        workflow_id=created.id,
+        workflow_key=created.workflow_key,
+        base_version=created.latest_version,
+        name="Versioned v2",
+        definition=WorkflowDefinition(
+            nodes=[{"id": "input_1", "type": "input/text", "config": {"file": "$file_0"}}],
+            connections=[],
+        ),
+        workspace_id="ws_versions",
+    )
+    published = store.publish(created.id, workspace_id="ws_versions")
+    assert published is not None
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+
+    with session_factory() as session:
+        session.add(
+            ApiKey(
+                id="key_versions",
+                key_hash="hash_versions",
+                key_prefix="versions",
+                workflow_id=created.id,
+                workspace_id="ws_versions",
+                is_active=True,
+            )
+        )
+        session.add(
+            ApiInvocation(
+                id="inv_versions",
+                workflow_id=created.id,
+                workspace_id="ws_versions",
+                endpoint_kind="json",
+                workflow_status="completed",
+                storage_bytes=0,
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        session.commit()
+
+    versions_before_delete = store.list_versions(created.id, workspace_id="ws_versions")
+    assert updated.latest_version == 2
+    assert [item.version for item in versions_before_delete] == [2, 1]
+    assert store.get(created.id, workspace_id="ws_versions") is not None
+
+    assert store.delete(created.id, workspace_id="ws_versions") is True
+    assert store.get(created.id, workspace_id="ws_versions") is None
+    assert store.list_versions(created.id, workspace_id="ws_versions") == []
+    assert store.delete(created.id, workspace_id="ws_versions") is False
+
+    with session_factory() as session:
+        assert (
+            session.scalar(select(WorkflowRecord.id).where(WorkflowRecord.id == created.id)) is None
+        )
+        assert (
+            session.scalars(
+                select(WorkflowVersionRecord.id).where(
+                    WorkflowVersionRecord.workflow_id == created.id
+                )
+            ).all()
+            == []
+        )
+        assert session.scalars(select(ApiKey.id)).all() == []
+        assert session.scalars(select(ApiInvocation.id)).all() == []
+
     engine.dispose()

@@ -39,6 +39,73 @@ x-engine-storage: &engine_storage
     - doc-conv-storage:/app/storage:ro
 
 services:
+  adaptor-sandbox-broker:
+    build:
+      context: .
+      dockerfile: engines/adaptor_sandbox/Dockerfile.broker
+    profiles:
+      - standard
+      - full
+    environment:
+      - PYTHONPATH=/app
+    depends_on:
+      adaptor-sandbox-runner:
+        condition: service_started
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=2)",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - doc-conv-network
+    volumes:
+      - adaptor-sandbox-socket:/run/adaptor-sandbox
+    user: "10002:10003"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    init: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev
+    pids_limit: 64
+    mem_limit: 256m
+    cpus: 0.50
+    restart: unless-stopped
+
+  adaptor-sandbox-runner:
+    build:
+      context: .
+      dockerfile: engines/adaptor_sandbox/Dockerfile.runner
+    profiles:
+      - standard
+      - full
+    environment:
+      - PYTHONPATH=/app
+    network_mode: none
+    volumes:
+      - adaptor-sandbox-socket:/run/adaptor-sandbox
+    user: "10001:10003"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    init: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev
+    pids_limit: 64
+    mem_limit: 256m
+    cpus: 0.50
+    restart: unless-stopped
+
   # === OCR Engine ===
   ocr-engine:
     <<: *engine_storage
@@ -264,6 +331,7 @@ services:
       - IMAGE_ENHANCEMENT_ENGINE_URL=${IMAGE_ENHANCEMENT_ENGINE_URL:-http://image-enhancement-engine:8080}
       - IMAGE_ROTATION_ENGINE_URL=${IMAGE_ROTATION_ENGINE_URL:-http://image-rotation-engine:8080}
       - OCR_MOCK_MODE=${OCR_MOCK_MODE:-false}
+      - ADAPTOR_SANDBOX_BROKER_URL=${ADAPTOR_SANDBOX_BROKER_URL:-http://adaptor-sandbox-broker:8080}
       - REDIS_URL=${REDIS_URL:-redis://:${REDIS_PASSWORD:?REDIS_PASSWORD env var is required}@redis:6379/0}
       - CELERY_BROKER_URL=${CELERY_BROKER_URL:-redis://:${REDIS_PASSWORD:?REDIS_PASSWORD env var is required}@redis:6379/0}
       - CELERY_RESULT_BACKEND=${CELERY_RESULT_BACKEND:-redis://:${REDIS_PASSWORD:?REDIS_PASSWORD env var is required}@redis:6379/1}
@@ -286,6 +354,8 @@ services:
       docling-engine:
         condition: service_healthy
       layout-detection-engine:
+        condition: service_healthy
+      adaptor-sandbox-broker:
         condition: service_healthy
       postgres:
         condition: service_healthy
@@ -350,6 +420,7 @@ services:
       - IMAGE_ENHANCEMENT_ENGINE_URL=${IMAGE_ENHANCEMENT_ENGINE_URL:-http://image-enhancement-engine:8080}
       - IMAGE_ROTATION_ENGINE_URL=${IMAGE_ROTATION_ENGINE_URL:-http://image-rotation-engine:8080}
       - OCR_MOCK_MODE=${OCR_MOCK_MODE:-false}
+      - ADAPTOR_SANDBOX_BROKER_URL=${ADAPTOR_SANDBOX_BROKER_URL:-http://adaptor-sandbox-broker:8080}
       - ORCHESTRATOR_MODE=${ORCHESTRATOR_MODE:-serial}
       - WORKSPACE_RBAC_ENFORCED=true
       - PROVIDER_ALLOW_PRIVATE_HOSTS=${PROVIDER_ALLOW_PRIVATE_HOSTS:-true}
@@ -364,6 +435,8 @@ services:
       postgres:
         condition: service_healthy
       backend:
+        condition: service_healthy
+      adaptor-sandbox-broker:
         condition: service_healthy
     healthcheck:
       test:
@@ -500,5 +573,6 @@ networks:
 # Volumes for persistent storage
 volumes:
   doc-conv-storage:
+  adaptor-sandbox-socket:
   postgres_data:
   redis_data:

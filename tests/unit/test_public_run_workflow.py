@@ -20,6 +20,8 @@ import pytest
 from app.api.public.auth import ApiKeyIdentity
 from app.api.public.error_response import PublicApiError
 from app.api.public.workflow_runs import RunWorkflowRequest, run_workflow
+from app.api.tasks import RunningTaskContext
+from app.models.execution import NodeOutput
 from app.services.input_fetcher import InputFetchError
 
 TEST_WORKSPACE_ID = "ws_public_run"
@@ -215,6 +217,178 @@ async def test_run_with_local_path_uses_verbatim_path() -> None:
         assert bound.file_path == local, bound.file_path
     finally:
         _teardown(patchers)
+
+
+@pytest.mark.asyncio()
+async def test_run_with_adaptor_workflow_uses_live_start_dag_run_helper() -> None:
+    patchers, _fake_start, fake_repo, fetcher_inst = _setup_handler_mocks(
+        fetcher_return="/tmp/tasks/r1/original/invoice.pdf"
+    )
+    request = _FakeRequest()
+    request.app.state.running_tasks = {}
+    request.app.state.dag_scheduler = MagicMock()
+    request.app.state.engine_client = MagicMock()
+    request.app.state.event_store = MagicMock()
+    request.app.state.auth_resolver = MagicMock()
+    request.app.state.provider_store = MagicMock()
+
+    workflow = MagicMock(
+        definition=MagicMock(
+            nodes=[
+                MagicMock(id="input_1", type="input/file", config={"file": "$file_0"}),
+                MagicMock(
+                    id="adaptor_1",
+                    type="processor/adaptor",
+                    config={"code": "def main(inputs):\n    return {'text': 'ok'}"},
+                ),
+                MagicMock(id="end_1", type="end/final", config={}),
+            ],
+            connections=[
+                MagicMock(source="input_1", target="adaptor_1", target_port="input"),
+                MagicMock(source="adaptor_1", target="end_1", target_port="input"),
+            ],
+            model_dump=lambda mode="json": {"nodes": [], "connections": []},
+        ),
+        published_version=1,
+    )
+    patchers["wfs"].stop()
+    patchers["start"].stop()
+    dag_run_mock = AsyncMock()
+    dag_run_mock.return_value = MagicMock(
+        completed={"adaptor_1": NodeOutput(text="ok")},
+        failed={},
+        skipped=set(),
+    )
+    request.app.state.dag_scheduler.run = dag_run_mock
+    with (
+        patch(
+            "app.api.public.workflow_runs.get_workflow_store",
+            return_value=MagicMock(get=MagicMock(return_value=workflow)),
+        ),
+    ):
+
+        async def _await_terminal(task_id: str, timeout: int, workspace_id: str | None = None):
+            _ = (timeout, workspace_id)
+            running = request.app.state.running_tasks[task_id]
+            assert isinstance(running, RunningTaskContext)
+            await running.asyncio_task
+            return MagicMock(
+                status="completed",
+                workspace_id=TEST_WORKSPACE_ID,
+                results=[{"content": "ok"}],
+                duration_ms=1,
+                node_summary={"completed": 1},
+                created_at=datetime.now(timezone.utc),
+                completed_at=datetime.now(timezone.utc),
+                error=None,
+            )
+
+        patchers["wait"].stop()
+        with patch("app.api.public.workflow_runs.await_run_terminal", _await_terminal):
+            try:
+                resp = await run_workflow(
+                    workflow_id="wf_demo",
+                    request=request,
+                    api_key_identity=_api_key_identity(),
+                    payload=RunWorkflowRequest(inputs={"file": "https://example.com/invoice.pdf"}),
+                )
+                assert resp.status_code == 200
+                dag_run_mock.assert_awaited_once()
+                fetcher_inst.resolve_input_file.assert_awaited_once()
+            finally:
+                _teardown(
+                    {k: v for k, v in patchers.items() if k in {"repo", "settings", "fetcher"}}
+                )
+
+
+@pytest.mark.asyncio()
+async def test_run_with_iteration_workflow_uses_live_start_dag_run_helper() -> None:
+    patchers, _fake_start, fake_repo, fetcher_inst = _setup_handler_mocks(
+        fetcher_return="/tmp/tasks/r1/original/invoice.pdf"
+    )
+    request = _FakeRequest()
+    request.app.state.running_tasks = {}
+    request.app.state.dag_scheduler = MagicMock()
+    request.app.state.engine_client = MagicMock()
+    request.app.state.event_store = MagicMock()
+    request.app.state.auth_resolver = MagicMock()
+    request.app.state.provider_store = MagicMock()
+
+    workflow = MagicMock(
+        definition=MagicMock(
+            nodes=[
+                MagicMock(id="input_1", type="input/file", config={"file": "$file_0"}),
+                MagicMock(
+                    id="iter_1",
+                    type="processor/iteration",
+                    config={
+                        "engine_node_type": "engine/ocr",
+                        "engine_config": {},
+                        "iterate_over": "binary",
+                        "item_input_port": "image",
+                        "mode": "sequential",
+                        "max_concurrency": 5,
+                        "error_handling": "terminate",
+                    },
+                ),
+                MagicMock(id="end_1", type="end/final", config={}),
+            ],
+            connections=[
+                MagicMock(source="input_1", target="iter_1", target_port="input"),
+                MagicMock(source="iter_1", target="end_1", target_port="input"),
+            ],
+            model_dump=lambda mode="json": {"nodes": [], "connections": []},
+        ),
+        published_version=1,
+    )
+    patchers["wfs"].stop()
+    patchers["start"].stop()
+    dag_run_mock = AsyncMock()
+    dag_run_mock.return_value = MagicMock(
+        completed={"iter_1": NodeOutput(structured={"kind": "iteration_result"})},
+        failed={},
+        skipped=set(),
+    )
+    request.app.state.dag_scheduler.run = dag_run_mock
+    with (
+        patch(
+            "app.api.public.workflow_runs.get_workflow_store",
+            return_value=MagicMock(get=MagicMock(return_value=workflow)),
+        ),
+    ):
+
+        async def _await_terminal(task_id: str, timeout: int, workspace_id: str | None = None):
+            _ = (timeout, workspace_id)
+            running = request.app.state.running_tasks[task_id]
+            assert isinstance(running, RunningTaskContext)
+            await running.asyncio_task
+            return MagicMock(
+                status="completed",
+                workspace_id=TEST_WORKSPACE_ID,
+                results=[{"content": "ok"}],
+                duration_ms=1,
+                node_summary={"completed": 1},
+                created_at=datetime.now(timezone.utc),
+                completed_at=datetime.now(timezone.utc),
+                error=None,
+            )
+
+        patchers["wait"].stop()
+        with patch("app.api.public.workflow_runs.await_run_terminal", _await_terminal):
+            try:
+                resp = await run_workflow(
+                    workflow_id="wf_demo",
+                    request=request,
+                    api_key_identity=_api_key_identity(),
+                    payload=RunWorkflowRequest(inputs={"file": "https://example.com/invoice.pdf"}),
+                )
+                assert resp.status_code == 200
+                dag_run_mock.assert_awaited_once()
+                fetcher_inst.resolve_input_file.assert_awaited_once()
+            finally:
+                _teardown(
+                    {k: v for k, v in patchers.items() if k in {"repo", "settings", "fetcher"}}
+                )
 
 
 # ---------- 4.5d: missing inputs.file on a workflow that needs it ----------

@@ -81,4 +81,16 @@ describe("DynamicWarningBadge", () => {
       screen.getByText("Select a vision model to process image input")
     ).toBeInTheDocument();
   });
+
+  it("falls back to the backend message for unknown warning codes", () => {
+    render(
+      <DynamicWarningBadge
+        nodeId="engine_1"
+        warnings={[makeWarning({ code: "ADAPTOR_DIRECT_EDGE_IGNORED", message: "backend text", severity: "warning" })]}
+      />
+    );
+
+    expect(screen.getByText("backend text")).toBeInTheDocument();
+    expect(screen.queryByText("Named input bindings will override direct input edges")).not.toBeInTheDocument();
+  });
 });

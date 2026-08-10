@@ -309,10 +309,12 @@ class DatabaseWorkflowStore:
             # in 0015 remain the primary integrity boundary.
             session.execute(sql_delete(ApiInvocation).where(ApiInvocation.workflow_id == record.id))
             session.execute(sql_delete(ApiKey).where(ApiKey.workflow_id == record.id))
-            for version_record in session.execute(
-                select(WorkflowVersionRecord).where(WorkflowVersionRecord.workflow_id == record.id)
-            ).scalars():
-                session.delete(version_record)
+            session.execute(
+                sql_delete(WorkflowVersionRecord).where(
+                    WorkflowVersionRecord.workflow_id == record.id
+                )
+            )
+            session.flush()
             session.delete(record)
             session.commit()
             return True

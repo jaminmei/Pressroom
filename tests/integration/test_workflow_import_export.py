@@ -12,6 +12,7 @@ from app.config import get_settings
 from app.db import session as db_session
 from app.db.base import Base
 from app.main import app
+from tests.helpers.workflow_persistence_samples import cloned_complex_definition_dict
 from tests.integration.workspace_api_support import reset_db_runtime, skip_discover_seed_configs
 
 pytestmark = pytest.mark.usefixtures("authenticated_workspace_contract")
@@ -54,6 +55,10 @@ def _definition() -> dict[str, object]:
             {"source": "engine_1", "target": "end_1"},
         ],
     }
+
+
+def _complex_definition() -> dict[str, object]:
+    return cloned_complex_definition_dict()
 
 
 @pytest.mark.anyio
@@ -104,3 +109,48 @@ async def test_import_rejects_unsupported_format_version(
     body = response.json()
     assert body["error_code"] == "UNSUPPORTED_FORMAT_VERSION"
     assert body["details"] is None
+
+
+@pytest.mark.anyio
+async def test_export_import_creates_new_lineage_with_exact_complex_definition(
+    isolated_workflow_import_export_state: Path,
+) -> None:
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        save_response = await client.post(
+            "/api/workflows/save",
+            json={
+                "name": "complex round-trip",
+                "description": "fixture",
+                "definition": _complex_definition(),
+            },
+        )
+        assert save_response.status_code == 200
+        saved = save_response.json()["data"]
+
+        export_response = await client.get(f"/api/workflows/{saved['id']}/export")
+        assert export_response.status_code == 200
+        exported = export_response.json()
+        assert exported["format_version"] == "1.0"
+        assert exported["workflow"]["workflow_key"] == saved["workflow_key"]
+        assert exported["workflow"]["definition"] == _complex_definition()
+
+        import_payload = dict(exported)
+        import_payload["exported_at"] = "1999-01-01T00:00:00Z"
+        import_response = await client.post("/api/workflows/import", json=import_payload)
+        assert import_response.status_code == 200
+        imported = import_response.json()["data"]
+        assert imported["id"] != saved["id"]
+        assert imported["workflow_key"] != saved["workflow_key"]
+        assert imported["latest_version"] == 1
+        assert imported["published_version"] is None
+
+        detail_response = await client.get(f"/api/workflows/{imported['id']}")
+        assert detail_response.status_code == 200
+        detail = detail_response.json()
+        assert detail["name"] == "complex round-trip"
+        assert detail["description"] == "fixture"
+        assert detail["definition"] == _complex_definition()
+
+        versions_response = await client.get(f"/api/workflows/{imported['workflow_key']}/versions")
+        assert versions_response.status_code == 200
+        assert versions_response.json()["meta"]["total"] == 1

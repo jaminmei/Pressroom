@@ -28,7 +28,8 @@ from app.providers.db import init_db
 from app.providers.encryption import get_fernet
 from app.providers.models import ModelProviderCreate, ProviderScope, ProviderType
 from app.providers.store import ProviderStore
-from app.services.dag_scheduler import DAGNode
+from app.services.dag_scheduler import DAGNode, NodeExecutionContext
+from app.services.durable_workflow_execution import DurableWorkflowExecutionService
 from app.services.engine_client import EngineClient, make_node_executor
 
 
@@ -288,3 +289,257 @@ def test_serial_and_queue_resolve_same_workspace_provider_routing_contract(
     assert provider_calls == [serial_call, serial_call]
     assert plugin_registration_count == 2
     registry.unregister(auth_type)
+
+
+def test_serial_and_queue_parity_for_adaptor_nodes_goes_through_shared_composite_executor(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session_factory, task_runs, _node_runs = _database(tmp_path)
+    monkeypatch.setattr(worker_tasks, "SessionLocal", session_factory)
+    monkeypatch.setattr(worker_tasks, "get_db_path", lambda: tmp_path / "providers.db")
+    fernet = get_fernet(Fernet.generate_key().decode())
+    monkeypatch.setattr(worker_tasks, "get_fernet", lambda: fernet)
+
+    composite_calls: list[tuple[str, tuple[str, ...], str | None]] = []
+
+    def _fake_make_adaptor_node_executor(
+        *,
+        base_executor,
+        definition_resolver,
+        sandbox_client_factory,
+        settings_getter=None,
+    ):
+        _ = (base_executor, definition_resolver, sandbox_client_factory, settings_getter)
+
+        async def _executor(node, inputs, context=None):
+            composite_calls.append(
+                (
+                    node.node_id,
+                    tuple(sorted(inputs.keys())),
+                    context.run_id if isinstance(context, NodeExecutionContext) else None,
+                )
+            )
+            if node.node_type == "processor/adaptor":
+                return NodeOutput(text=f"adaptor-{node.node_id}")
+            return NodeOutput(text=f"base-{node.node_id}")
+
+        return _executor
+
+    monkeypatch.setattr(
+        "app.services.durable_workflow_execution.make_adaptor_node_executor",
+        _fake_make_adaptor_node_executor,
+    )
+
+    scheduler = worker_tasks.DAGScheduler(
+        event_store=worker_tasks._WorkerEventStore(),
+        node_registry=worker_tasks.NodeRegistryService(),
+        storage=worker_tasks.get_storage(),
+    )
+    serial_service = DurableWorkflowExecutionService(
+        dag_scheduler=scheduler,
+        engine_client=EngineClient(),
+        auth_resolver=AuthResolver(fernet=fernet),
+        provider_store=ProviderStore(tmp_path / "providers.db", fernet),
+    )
+    source = tmp_path / "source.txt"
+    source.write_text("queue input", encoding="utf-8")
+    input_bindings = {
+        "input": worker_tasks.TaskInputFile(
+            file_path=str(source),
+            filename=source.name,
+            mime_type="text/plain",
+            workspace_id="ws_queue",
+        )
+    }
+    workflow = worker_tasks.WorkflowDefinition.model_validate(
+        {
+            "nodes": [
+                {"id": "input", "type": "input/text", "config": {}},
+                {
+                    "id": "adaptor",
+                    "type": "processor/adaptor",
+                    "config": {"code": "def main(inputs):\n    return {'text': 'ok'}"},
+                },
+                {"id": "end", "type": "end/final", "config": {}},
+            ],
+            "connections": [
+                {"source": "input", "target": "adaptor", "target_port": "input"},
+                {"source": "adaptor", "target": "end", "target_port": "input"},
+            ],
+        }
+    )
+
+    asyncio.run(
+        serial_service.execute(
+            workflow,
+            task_id="serial-adaptor",
+            input_bindings=input_bindings,
+            workspace_id="ws_queue",
+        )
+    )
+
+    queue_result = worker_tasks.execute_workflow_task_sync(
+        "queue-adaptor",
+        {
+            "nodes": [
+                {"id": "input", "type": "input/text", "config": {}},
+                {
+                    "id": "adaptor",
+                    "type": "processor/adaptor",
+                    "config": {"code": "def main(inputs):\n    return {'text': 'ok'}"},
+                },
+                {"id": "end", "type": "end/final", "config": {}},
+            ],
+            "connections": [
+                {"source": "input", "target": "adaptor", "target_port": "input"},
+                {"source": "adaptor", "target": "end", "target_port": "input"},
+            ],
+        },
+        {
+            "input": {
+                "file_path": str(source),
+                "filename": source.name,
+                "mime_type": "text/plain",
+                "workspace_id": "ws_queue",
+            }
+        },
+        context_data={"workspace_id": "ws_queue"},
+    )
+
+    assert queue_result["status"] == "completed"
+    adaptor_calls = [call for call in composite_calls if call[0] == "adaptor"]
+    assert adaptor_calls == [
+        ("adaptor", ("input",), "serial-adaptor"),
+        ("adaptor", ("input",), "queue-adaptor"),
+    ]
+    with session_factory() as session:
+        assert (
+            session.execute(
+                select(task_runs.c.status).where(task_runs.c.id == "queue-adaptor")
+            ).scalar_one()
+            == "completed"
+        )
+
+
+def test_serial_and_queue_parity_for_iteration_nodes_uses_shared_composite_runtime(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session_factory, task_runs, _node_runs = _database(tmp_path)
+    monkeypatch.setattr(worker_tasks, "SessionLocal", session_factory)
+    monkeypatch.setattr(worker_tasks, "get_db_path", lambda: tmp_path / "providers.db")
+    fernet = get_fernet(Fernet.generate_key().decode())
+    monkeypatch.setattr(worker_tasks, "get_fernet", lambda: fernet)
+
+    build_calls: list[str] = []
+
+    class _Runtime:
+        async def executor(self, node, inputs, context=None):
+            _ = (inputs, context)
+            if node.node_type == "processor/iteration":
+                return NodeOutput(
+                    structured={
+                        "kind": "iteration_result",
+                        "items": [],
+                        "total": 0,
+                        "success_count": 0,
+                        "error_count": 0,
+                    }
+                )
+            return NodeOutput(text=f"base-{node.node_id}")
+
+        async def aclose(self) -> None:
+            return None
+
+    def _fake_build_runtime(**kwargs):
+        _ = kwargs
+        build_calls.append("called")
+        return _Runtime()
+
+    monkeypatch.setattr(
+        "app.services.durable_workflow_execution.build_composite_executor_runtime",
+        _fake_build_runtime,
+    )
+
+    workflow = worker_tasks.WorkflowDefinition.model_validate(
+        {
+            "nodes": [
+                {"id": "input", "type": "input/text", "config": {}},
+                {
+                    "id": "iter",
+                    "type": "processor/iteration",
+                    "config": {
+                        "engine_node_type": "engine/ocr",
+                        "engine_config": {},
+                        "iterate_over": "binary",
+                        "item_input_port": "image",
+                        "mode": "sequential",
+                        "max_concurrency": 5,
+                        "error_handling": "terminate",
+                    },
+                },
+                {"id": "end", "type": "end/final", "config": {}},
+            ],
+            "connections": [
+                {"source": "input", "target": "iter", "target_port": "input"},
+                {"source": "iter", "target": "end", "target_port": "input"},
+            ],
+        }
+    )
+    source = tmp_path / "source.txt"
+    source.write_text("queue input", encoding="utf-8")
+    input_bindings = {
+        "input": worker_tasks.TaskInputFile(
+            file_path=str(source),
+            filename=source.name,
+            mime_type="text/plain",
+            workspace_id="ws_queue",
+        )
+    }
+
+    scheduler = worker_tasks.DAGScheduler(
+        event_store=worker_tasks._WorkerEventStore(),
+        node_registry=worker_tasks.NodeRegistryService(),
+        storage=worker_tasks.get_storage(),
+    )
+    serial_service = DurableWorkflowExecutionService(
+        dag_scheduler=scheduler,
+        engine_client=EngineClient(),
+        auth_resolver=AuthResolver(fernet=fernet),
+        provider_store=ProviderStore(tmp_path / "providers.db", fernet),
+    )
+
+    asyncio.run(
+        serial_service.execute(
+            workflow,
+            task_id="serial-iteration",
+            input_bindings=input_bindings,
+            workspace_id="ws_queue",
+            node_executor=lambda *_args, **_kwargs: NodeOutput(text="base"),
+        )
+    )
+
+    queue_result = worker_tasks.execute_workflow_task_sync(
+        "queue-iteration",
+        workflow.model_dump(mode="json"),
+        {
+            "input": {
+                "file_path": str(source),
+                "filename": source.name,
+                "mime_type": "text/plain",
+                "workspace_id": "ws_queue",
+            }
+        },
+        context_data={"workspace_id": "ws_queue"},
+    )
+
+    assert queue_result["status"] == "completed"
+    assert build_calls == ["called", "called"]
+    with session_factory() as session:
+        assert (
+            session.execute(
+                select(task_runs.c.status).where(task_runs.c.id == "queue-iteration")
+            ).scalar_one()
+            == "completed"
+        )

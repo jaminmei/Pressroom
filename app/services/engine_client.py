@@ -296,7 +296,9 @@ def make_node_executor(
     async def executor(
         node: DAGNode,
         inputs: dict[str, NodeOutput],
+        context: object | None = None,
     ) -> NodeOutput:
+        _ = context
         provider = None
         auth_result = AuthResult()
 

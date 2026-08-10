@@ -16,14 +16,19 @@ from tests._api_workspace_contract import (
 )
 
 
-def _stub_node_output(output: Any) -> None:
+def _stub_node_output(
+    output: Any,
+    *,
+    node_type: str = "test_node",
+    events: list[Any] | None = None,
+) -> None:
     app.state.running_tasks = {
         "task-1": SimpleNamespace(run_id="task-1", workspace_id=TEST_WORKSPACE_ID)
     }
-    app.state.event_store = SimpleNamespace()
+    app.state.event_store = SimpleNamespace(get_events=lambda _run_id: events or [])
 
     def _fake_node_output_from_events(_run_id: str, _node_id: str, _event_store: Any):
-        return output, "completed", None, "test_node"
+        return output, "completed", None, node_type
 
     import app.api.tasks as tasks_module
 
@@ -148,3 +153,51 @@ def test_empty_binary_list_returns_404(client: TestClient) -> None:
     response = client.get("/api/tasks/task-1/nodes/node-1/image")
 
     assert response.status_code == 404
+
+
+def test_layout_result_serves_upstream_source_image(client: TestClient) -> None:
+    source_bytes = b"upstream-layout-source"
+    source_output = NodeOutput(
+        binary=[
+            BinaryRef(
+                ref="",
+                data=base64.b64encode(source_bytes).decode("ascii"),
+                mime_type="image/png",
+                size_bytes=len(source_bytes),
+            )
+        ]
+    )
+    layout_output = NodeOutput(
+        structured={
+            "kind": "layout_regions",
+            "elements": [],
+            "total_regions": 0,
+        }
+    )
+    events = [
+        SimpleNamespace(
+            node_id="input-1",
+            event_type="completed",
+            output=source_output,
+            resolved_inputs={},
+        ),
+        SimpleNamespace(
+            node_id="layout-1",
+            event_type="started",
+            output=None,
+            resolved_inputs={
+                "image": SimpleNamespace(source_node_id="input-1"),
+            },
+        ),
+    ]
+    _stub_node_output(
+        layout_output,
+        node_type="processor/layout_detection",
+        events=events,
+    )
+
+    response = client.get("/api/tasks/task-1/nodes/layout-1/image")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "image/png"
+    assert response.content == source_bytes

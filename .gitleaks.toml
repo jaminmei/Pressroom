@@ -2,3 +2,9 @@ title = "Document Conversion public repository"
 
 [extend]
 useDefault = true
+
+[allowlist]
+description = "Phase 04 sandbox verification placeholder env vars"
+regexes = [
+  '''INVALID_PHASE04_(FERNET|POSTGRES|SESSION|REDIS)''',
+]

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from pathlib import Path
 from typing import Any
 
@@ -704,5 +705,107 @@ def test_execute_evaluation_document_async_finalizes_failed_when_engine_raises(
             assert stored.status == "failed"
             assert stored.error is not None
             assert "ocr timed out" in stored.error
+
+    asyncio.run(_run())
+
+
+def test_execute_evaluation_document_async_handles_iteration_workflow_through_shared_runtime(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def _run() -> None:
+        _ts, evaluations, _disp, sf, run_obj, results, document_ids = await _seed_queue_run(
+            tmp_path
+        )
+        async with sf() as session:
+            stored_run = await session.scalar(
+                select(EvaluationRun).where(EvaluationRun.id == run_obj.id)
+            )
+            assert stored_run is not None
+            stored_run.workflow_snapshot_json = json.dumps(
+                {
+                    "nodes": [
+                        {"id": "input_1", "type": "input/file", "config": {}},
+                        {
+                            "id": "iter_1",
+                            "type": "processor/iteration",
+                            "config": {
+                                "engine_node_type": "engine/ocr",
+                                "engine_config": {},
+                                "iterate_over": "binary",
+                                "item_input_port": "image",
+                                "mode": "sequential",
+                                "max_concurrency": 5,
+                                "error_handling": "terminate",
+                            },
+                        },
+                        {"id": "end_1", "type": "end/final", "config": {}},
+                    ],
+                    "connections": [
+                        {"source": "input_1", "target": "iter_1"},
+                        {"source": "iter_1", "target": "end_1"},
+                    ],
+                }
+            )
+            session.add(stored_run)
+            await session.commit()
+
+        from app.services import durable_workflow_execution as dwe_mod
+
+        async def _fake_execute(
+            self: dwe_mod.DurableWorkflowExecutionService,
+            workflow: WorkflowDefinition,
+            *,
+            task_id: str,
+            input_bindings: dict[str, Any],
+            workspace_id: str,
+            cancel_check: Any = None,
+            node_executor: Any = None,
+        ) -> DAGRunResult:
+            _ = (self, task_id, input_bindings, workspace_id, cancel_check, node_executor)
+            assert any(node.type == "processor/iteration" for node in workflow.nodes)
+            return DAGRunResult(
+                completed={
+                    "iter_1": NodeOutput(
+                        structured={
+                            "kind": "iteration_result",
+                            "items": [],
+                            "total": 0,
+                            "success_count": 0,
+                            "error_count": 0,
+                        }
+                    )
+                },
+                failed={},
+                skipped=set(),
+            )
+
+        monkeypatch.setattr(dwe_mod.DurableWorkflowExecutionService, "execute", _fake_execute)
+
+        from app.services import engine_client as ec_mod
+
+        async def _no_close(self: object) -> None:
+            return None
+
+        monkeypatch.setattr(ec_mod.EngineClient, "close", _no_close)
+
+        from app.worker_tasks import _execute_evaluation_document_async
+
+        outcome = await _execute_evaluation_document_async(
+            results[0].id,
+            enable_task_retry=False,
+            retry_count=0,
+            max_retries=0,
+            evaluation_repository=evaluations,
+            node_executor=None,
+        )
+        assert outcome["status"] == "completed"
+
+        async with sf() as session:
+            stored_result = await session.scalar(
+                select(EvaluationResult).where(EvaluationResult.id == results[0].id)
+            )
+            assert stored_result is not None
+            assert stored_result.status == "completed"
 
     asyncio.run(_run())

@@ -7,6 +7,8 @@ import pytest
 from sqlalchemy import MetaData, create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
+from app.errors.error_codes import ErrorCode
+from app.errors.exceptions import EngineError
 from app.models.db.execution_event import ExecutionEventRecord
 from app.models.execution import NodeOutput
 from app.models.task import TaskInputFile
@@ -17,7 +19,9 @@ from app.services.dag_scheduler import (
     DAGScheduler,
     _downstream_closure,
     build_dag,
+    build_resolved_event_inputs,
     find_ready_nodes,
+    resolve_aggregated_inputs,
     resolve_inputs,
     validate_dag,
 )
@@ -126,14 +130,14 @@ class TestBuildDag:
         dag = build_dag(_simple_workflow())
         assert set(dag.nodes.keys()) == {"upload-1", "ocr-1", "output-1"}
         assert dag.roots == {"upload-1"}
-        assert dag.nodes["ocr-1"].named_inputs == {"images": "upload-1"}
+        assert dag.nodes["ocr-1"].named_inputs == {"images": ["upload-1"]}
         assert dag.nodes["ocr-1"].dependencies == {"upload-1"}
         assert dag.downstream["upload-1"] == {"ocr-1"}
 
     def test_parallel(self):
         dag = build_dag(_parallel_workflow())
         assert dag.roots == {"upload-1"}
-        assert dag.nodes["model-1"].named_inputs == {"image": "upload-1"}
+        assert dag.nodes["model-1"].named_inputs == {"image": ["upload-1"]}
         assert dag.downstream["upload-1"] == {"ocr-1", "model-1"}
 
     def test_no_connections(self):
@@ -144,6 +148,30 @@ class TestBuildDag:
         dag = build_dag(wf)
         assert dag.roots == {"a"}
         assert not dag.nodes["a"].dependencies
+
+    def test_preserves_multi_upstream_connections_on_same_port_for_adaptor_graph_fan_in(self):
+        wf = WorkflowDefinition(
+            nodes=[
+                WorkflowNode(id="input_1", type="input/text", config={"file": "$file_0"}),
+                WorkflowNode(id="input_2", type="input/text", config={"file": "$file_1"}),
+                WorkflowNode(
+                    id="adaptor_1",
+                    type="processor/adaptor",
+                    config={"code": "def main(inputs):\n    return {'text': 'ok'}"},
+                ),
+                WorkflowNode(id="end_1", type="end/final", config={}),
+            ],
+            connections=[
+                WorkflowConnection(source="input_1", target="adaptor_1", target_port="input"),
+                WorkflowConnection(source="input_2", target="adaptor_1", target_port="input"),
+                WorkflowConnection(source="adaptor_1", target="end_1", target_port="input"),
+            ],
+        )
+
+        dag = build_dag(wf)
+
+        assert dag.nodes["adaptor_1"].named_inputs == {"input": ["input_1", "input_2"]}
+        assert dag.nodes["adaptor_1"].dependencies == {"input_1", "input_2"}
 
 
 # ---------------------------------------------------------------------------
@@ -213,7 +241,7 @@ class TestResolveInputs:
             node_id="ocr-1",
             node_type="engine/ocr",
             config={},
-            named_inputs={"images": "upload-1"},
+            named_inputs={"images": ["upload-1"]},
             dependencies={"upload-1"},
         )
         state = {"upload-1": NodeOutput(text="image data")}
@@ -226,7 +254,7 @@ class TestResolveInputs:
             node_id="model-1",
             node_type="engine/model",
             config={},
-            named_inputs={"image": "upload-1", "text": "ocr-1"},
+            named_inputs={"image": ["upload-1"], "text": ["ocr-1"]},
             dependencies={"upload-1", "ocr-1"},
         )
         state = {
@@ -236,6 +264,57 @@ class TestResolveInputs:
         inputs = resolve_inputs(node, state)
         assert inputs["image"].text == "img"
         assert inputs["text"].text == "ocr result"
+
+    def test_multi_upstream_same_port_resolution_keeps_legacy_last_connection_for_generic_nodes(
+        self,
+    ):
+        node = DAGNode(
+            node_id="ocr-1",
+            node_type="engine/ocr",
+            config={},
+            named_inputs={"images": ["upload-1", "upload-2"]},
+            dependencies={"upload-1", "upload-2"},
+        )
+        state = {
+            "upload-1": NodeOutput(text="one"),
+            "upload-2": NodeOutput(text="two"),
+        }
+
+        inputs = resolve_inputs(node, state)
+
+        assert inputs["images"].text == "two"
+
+    def test_multi_upstream_same_port_resolution_returns_list_for_end_aggregator(self):
+        node = DAGNode(
+            node_id="end-1",
+            node_type="end/final",
+            config={},
+            named_inputs={"input": ["ocr-1", "model-1"]},
+            dependencies={"ocr-1", "model-1"},
+        )
+        state = {
+            "ocr-1": NodeOutput(text="ocr"),
+            "model-1": NodeOutput(text="model"),
+        }
+
+        inputs = resolve_aggregated_inputs(node, state)
+
+        assert isinstance(inputs["input"], list)
+        assert [value.text for value in inputs["input"]] == ["ocr", "model"]
+
+    def test_event_inputs_keep_legacy_last_connection_for_generic_nodes(self):
+        node = DAGNode(
+            node_id="ocr-1",
+            node_type="engine/ocr",
+            config={},
+            named_inputs={"images": ["upload-1", "upload-2"]},
+            dependencies={"upload-1", "upload-2"},
+        )
+
+        resolved = build_resolved_event_inputs(node, "run-123")
+
+        assert resolved["images"].source_node_id == "upload-2"
+        assert resolved["images"].source_event_id == "run-123:upload-2"
 
 
 # ---------------------------------------------------------------------------
@@ -299,6 +378,88 @@ class TestDAGSchedulerRun:
         assert "ocr-1" in state
         assert "model-1" in state
         assert "output-1" in state
+
+    @pytest.mark.asyncio()
+    async def test_end_node_aggregates_multiple_upstream_outputs(
+        self, event_store, registry, storage, image_file
+    ):
+        es, _ = event_store
+        scheduler = DAGScheduler(event_store=es, node_registry=registry, storage=storage)
+
+        result = await scheduler.run(
+            _parallel_workflow(file_path=image_file),
+            node_executor=_make_executor(
+                outputs={
+                    "ocr-1": NodeOutput(text="ocr result"),
+                    "model-1": NodeOutput(text="model result"),
+                }
+            ),
+        )
+
+        end_output = result.completed["output-1"]
+
+        assert end_output.text == "ocr result\n\nmodel result"
+        assert end_output.metadata == {"completed_nodes": ["input", "input"]}
+
+    @pytest.mark.asyncio()
+    async def test_generic_executor_receives_single_legacy_value_for_multi_upstream_same_port(
+        self, event_store, registry, storage
+    ):
+        es, _ = event_store
+        scheduler = DAGScheduler(event_store=es, node_registry=registry, storage=storage)
+        workflow = WorkflowDefinition(
+            nodes=[
+                WorkflowNode(id="input_1", type="input/image", config={"file": "$file_0"}),
+                WorkflowNode(id="input_2", type="input/image", config={"file": "$file_1"}),
+                WorkflowNode(id="ocr_1", type="engine/ocr", config={}),
+                WorkflowNode(id="end_1", type="end/final", config={}),
+            ],
+            connections=[
+                WorkflowConnection(source="input_1", target="ocr_1", target_port="images"),
+                WorkflowConnection(source="input_2", target="ocr_1", target_port="images"),
+                WorkflowConnection(source="ocr_1", target="end_1", target_port="input"),
+            ],
+        )
+
+        seen_inputs: dict[str, NodeOutput] = {}
+
+        async def executor(node: DAGNode, inputs: dict[str, NodeOutput]) -> NodeOutput:
+            if node.node_id == "ocr_1":
+                seen_inputs.update(inputs)
+            return NodeOutput(text=f"output from {node.node_id}")
+
+        storage.storage_root.mkdir(parents=True, exist_ok=True)
+        file_a = storage.storage_root / "input-a.png"
+        file_b = storage.storage_root / "input-b.png"
+        file_a.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 10)
+        file_b.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x01" * 10)
+
+        await scheduler.run(
+            workflow,
+            node_executor=executor,
+            input_bindings={
+                "input_1": TaskInputFile(
+                    file_path=str(file_a),
+                    filename="input-a.png",
+                    mime_type="image/png",
+                    size_bytes=file_a.stat().st_size,
+                ),
+                "input_2": TaskInputFile(
+                    file_path=str(file_b),
+                    filename="input-b.png",
+                    mime_type="image/png",
+                    size_bytes=file_b.stat().st_size,
+                ),
+            },
+        )
+
+        assert set(seen_inputs.keys()) == {"images"}
+        assert isinstance(seen_inputs["images"], NodeOutput)
+        assert seen_inputs["images"].metadata == {
+            "filename": "input-b.png",
+            "mime_type": "image/png",
+            "size_bytes": file_b.stat().st_size,
+        }
 
     @pytest.mark.asyncio()
     async def test_events_persisted(self, event_store, registry, storage, image_file):
@@ -746,3 +907,92 @@ class TestPartialExecution:
         ]
         assert len(ocr_events) >= 1
         assert len(output_events) >= 1
+
+    @pytest.mark.asyncio()
+    async def test_rerun_adaptor_context_uses_current_batch_outputs(
+        self,
+        event_store,
+        registry,
+        storage,
+        image_file,
+    ):
+        es, _ = event_store
+        scheduler = DAGScheduler(event_store=es, node_registry=registry, storage=storage)
+        workflow = WorkflowDefinition(
+            nodes=[
+                WorkflowNode(id="input_1", type="input/image", config={"file": image_file}),
+                WorkflowNode(id="ocr_1", type="engine/ocr", config={}),
+                WorkflowNode(
+                    id="adaptor_1",
+                    type="processor/adaptor",
+                    config={"code": "def main(inputs):\n    return {'text': 'ok'}"},
+                ),
+                WorkflowNode(id="end_1", type="end/final", config={}),
+            ],
+            connections=[
+                WorkflowConnection(source="input_1", target="ocr_1", target_port="images"),
+                WorkflowConnection(source="ocr_1", target="adaptor_1", target_port="input"),
+                WorkflowConnection(source="adaptor_1", target="end_1", target_port="input"),
+            ],
+        )
+
+        seen_context_outputs: list[dict[str, NodeOutput]] = []
+
+        async def executor(node, inputs, context=None):
+            if node.node_id == "ocr_1":
+                return NodeOutput(text="fresh-ocr")
+            if node.node_id == "adaptor_1":
+                assert context is not None
+                seen_context_outputs.append(dict(context.completed_outputs))
+                return NodeOutput(text="adapted")
+            return NodeOutput(text=f"output-{node.node_id}")
+
+        await scheduler.run(
+            workflow,
+            node_executor=executor,
+            run_id="adaptor-current-batch",
+        )
+        es.delete_events_for_nodes("adaptor-current-batch", {"ocr_1", "adaptor_1", "end_1"})
+        seen_context_outputs.clear()
+
+        result = await scheduler.run(
+            workflow,
+            node_executor=executor,
+            run_id="adaptor-current-batch",
+            start_nodes={"ocr_1"},
+        )
+
+        assert result.completed["ocr_1"].text == "fresh-ocr"
+        assert seen_context_outputs, "adaptor execution context was not captured"
+        assert seen_context_outputs[0]["ocr_1"].text == "fresh-ocr"
+
+    @pytest.mark.asyncio()
+    async def test_failure_causes_keep_runtime_error_and_public_string(
+        self,
+        event_store,
+        registry,
+        storage,
+        image_file,
+    ):
+        es, _ = event_store
+        scheduler = DAGScheduler(event_store=es, node_registry=registry, storage=storage)
+
+        async def executor(node, inputs, context=None):
+            _ = (inputs, context)
+            if node.node_id == "ocr-1":
+                raise EngineError(
+                    error_code=ErrorCode.ENGINE_TIMEOUT,
+                    message="Sandbox broker timed out",
+                    engine_name=node.node_type,
+                )
+            return NodeOutput(text=f"output-{node.node_id}")
+
+        result = await scheduler.run(
+            _simple_workflow(file_path=image_file),
+            node_executor=executor,
+            run_id="failure-causes",
+        )
+
+        assert result.failed["ocr-1"] == "Sandbox broker timed out"
+        assert isinstance(result.failure_causes["ocr-1"], EngineError)
+        assert result.failure_causes["ocr-1"].error_code is ErrorCode.ENGINE_TIMEOUT

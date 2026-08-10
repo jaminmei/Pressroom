@@ -179,13 +179,51 @@ function buildFullRegistry(): Pick<NodeRegistryResponse, "nodes" | "connection_r
         category: "end",
         config_schema: { type: "object", properties: {} },
         input_types: [
+          "application/x-adaptor-output",
+          "text/raw",
+          "text/plain",
           "text/markdown",
-          "text/plain+formatted",
-          "application/yaml",
+          "image/*",
+          "application/x-iteration-output",
+        ],
+        input_ports: [
+          {
+            name: "input",
+            accepted_types: [
+              "application/x-adaptor-output",
+              "text/raw",
+              "text/plain",
+              "text/markdown",
+              "image/*",
+              "application/x-iteration-output"
+            ],
+            required: true,
+            max_connections: -1
+          }
         ],
         output_types: [],
         max_inputs: -1,
         max_outputs: 0,
+      },
+      {
+        node_type: "processor/adaptor",
+        display_name: "Adaptor",
+        category: "processor",
+        config_schema: { type: "object", properties: {} },
+        input_ports: [{ name: "input", accepted_types: ["*/*"], required: true, max_connections: -1 }],
+        output_types: ["application/x-adaptor-output"],
+        max_inputs: -1,
+        max_outputs: -1,
+      },
+      {
+        node_type: "processor/iteration",
+        display_name: "Iteration",
+        category: "processor",
+        config_schema: { type: "object", properties: {} },
+        input_ports: [{ name: "input", accepted_types: ["*/*"], required: true, max_connections: 1 }],
+        output_types: ["application/x-iteration-output"],
+        max_inputs: 1,
+        max_outputs: -1,
       },
     ],
     connection_rules: [],
@@ -265,7 +303,7 @@ const CONNECTION_MATRIX: [string, string, boolean][] = [
   ["input/image", "engine/markitdown", true],              // 8
   ["input/image", "engine/docling", true],                 // 9
   ["input/image", "output/markdown", false],               // 10
-  ["input/image", "end/final", false],                     // 11
+  ["input/image", "end/final", true],                      // 11
   // --- Row 2: input/pdf (outputs: application/pdf, image/*) ---
   ["input/pdf", "processor/image_enhance", true],          // 12
   ["input/pdf", "processor/rotate", true],                 // 13
@@ -276,7 +314,7 @@ const CONNECTION_MATRIX: [string, string, boolean][] = [
   ["input/pdf", "engine/markitdown", true],                // 19
   ["input/pdf", "engine/docling", true],                   // 20
   ["input/pdf", "output/markdown", false],                 // 21
-  ["input/pdf", "end/final", false],                       // 22
+  ["input/pdf", "end/final", true],                        // 22
   // --- Row 3: input/text (outputs: text/plain) ---
   ["input/text", "processor/image_enhance", false],        // 23
   ["input/text", "processor/rotate", false],               // 24
@@ -287,7 +325,7 @@ const CONNECTION_MATRIX: [string, string, boolean][] = [
   ["input/text", "engine/markitdown", true],               // 30
   ["input/text", "engine/docling", true],                  // 31
   ["input/text", "output/markdown", true],                 // 32
-  ["input/text", "end/final", false],                      // 33
+  ["input/text", "end/final", true],                       // 33
   // --- Row 4: processor/image_enhance (outputs: image/*) ---
   ["processor/image_enhance", "processor/image_enhance", true],    // 34
   ["processor/image_enhance", "processor/rotate", true],            // 35
@@ -298,7 +336,7 @@ const CONNECTION_MATRIX: [string, string, boolean][] = [
   ["processor/image_enhance", "engine/markitdown", true],           // 41
   ["processor/image_enhance", "engine/docling", true],              // 42
   ["processor/image_enhance", "output/markdown", false],            // 43
-  ["processor/image_enhance", "end/final", false],                  // 44
+  ["processor/image_enhance", "end/final", true],                   // 44
   // --- Row 5: processor/rotate (outputs: image/*) ---
   ["processor/rotate", "processor/image_enhance", true],   // 45
   ["processor/rotate", "processor/rotate", true],           // 46
@@ -309,7 +347,7 @@ const CONNECTION_MATRIX: [string, string, boolean][] = [
   ["processor/rotate", "engine/markitdown", true],          // 52
   ["processor/rotate", "engine/docling", true],             // 53
   ["processor/rotate", "output/markdown", false],           // 54
-  ["processor/rotate", "end/final", false],                 // 55
+  ["processor/rotate", "end/final", true],                  // 55
   // --- Row 6: processor/layout_detection (outputs: application/x-layout-result) ---
   ["processor/layout_detection", "processor/image_enhance", false],    // 56
   ["processor/layout_detection", "processor/rotate", false],            // 57
@@ -333,7 +371,7 @@ const CONNECTION_MATRIX: [string, string, boolean][] = [
   ["engine/ocr", "engine/markitdown", false],           // 84
   ["engine/ocr", "engine/docling", false],              // 85
   ["engine/ocr", "output/markdown", true],              // 86
-  ["engine/ocr", "end/final", false],                   // 87
+  ["engine/ocr", "end/final", true],                    // 87
   // --- Row 9: engine/model (outputs: text/raw) ---
   ["engine/model", "processor/image_enhance", false],  // 88
   ["engine/model", "processor/rotate", false],          // 89
@@ -344,7 +382,7 @@ const CONNECTION_MATRIX: [string, string, boolean][] = [
   ["engine/model", "engine/markitdown", false],         // 95
   ["engine/model", "engine/docling", false],            // 96
   ["engine/model", "output/markdown", true],            // 97
-  ["engine/model", "end/final", false],                 // 98
+  ["engine/model", "end/final", true],                  // 98
   // --- Row 10: engine/text (outputs: text/raw) ---
   ["engine/text", "processor/image_enhance", false],   // 99
   ["engine/text", "processor/rotate", false],           // 100
@@ -355,7 +393,7 @@ const CONNECTION_MATRIX: [string, string, boolean][] = [
   ["engine/text", "engine/markitdown", false],          // 106
   ["engine/text", "engine/docling", false],             // 107
   ["engine/text", "output/markdown", true],             // 108
-  ["engine/text", "end/final", false],                  // 109
+  ["engine/text", "end/final", true],                   // 109
   // --- Row 11: engine/markitdown (outputs: text/raw) ---
   ["engine/markitdown", "processor/image_enhance", false],     // 110
   ["engine/markitdown", "processor/rotate", false],             // 111
@@ -366,7 +404,7 @@ const CONNECTION_MATRIX: [string, string, boolean][] = [
   ["engine/markitdown", "engine/markitdown", false],            // 117
   ["engine/markitdown", "engine/docling", false],               // 118
   ["engine/markitdown", "output/markdown", true],               // 119
-  ["engine/markitdown", "end/final", false],                    // 120
+  ["engine/markitdown", "end/final", true],                     // 120
   // --- Row 12: engine/docling (outputs: text/raw) ---
   ["engine/docling", "processor/image_enhance", false],   // 121
   ["engine/docling", "processor/rotate", false],            // 122
@@ -377,7 +415,7 @@ const CONNECTION_MATRIX: [string, string, boolean][] = [
   ["engine/docling", "engine/markitdown", false],           // 128
   ["engine/docling", "engine/docling", false],              // 129
   ["engine/docling", "output/markdown", true],              // 130
-  ["engine/docling", "end/final", false],                   // 131
+  ["engine/docling", "end/final", true],                    // 131
   // --- Row 13: output/markdown (outputs: text/markdown) ---
   ["output/markdown", "processor/image_enhance", false],  // 132
   ["output/markdown", "processor/rotate", false],          // 133
@@ -389,6 +427,7 @@ const CONNECTION_MATRIX: [string, string, boolean][] = [
   ["output/markdown", "engine/docling", false],            // 140
   ["output/markdown", "output/markdown", false],           // 141
   ["output/markdown", "end/final", true],                  // 142
+  ["processor/adaptor", "end/final", true],                // 143
 ];
 
 // ---------------------------------------------------------------------------
@@ -441,9 +480,9 @@ describe("Connection Matrix (143-cell exhaustive)", () => {
     },
   );
 
-  it("matrix covers 120 registered-type cells (143 - 23 block_selector)", () => {
-    expect(CONNECTION_MATRIX.length).toBe(120);
-    expect(CONNECTION_MATRIX.length + BLOCK_SELECTOR_CELLS.length).toBe(143);
+  it("matrix covers 121 registered-type cells (144 - 23 block_selector)", () => {
+    expect(CONNECTION_MATRIX.length).toBe(121);
+    expect(CONNECTION_MATRIX.length + BLOCK_SELECTOR_CELLS.length).toBe(144);
   });
 });
 

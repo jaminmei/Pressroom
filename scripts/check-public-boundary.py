@@ -139,6 +139,7 @@ PUBLIC_WIKI_ROOT_FILES = {
 }
 PUBLIC_WIKI_SUBTREES = {
     "architecture",
+    "migrations",
     "decisions",
     "patterns",
     "questions",
@@ -178,6 +179,7 @@ ALLOWED_ROOTS = {
     "requirements-dev.txt",
     "requirements.lock",
     "requirements.txt",
+    "sandbox_protocol",
     "scripts",
     "tests",
     "website",

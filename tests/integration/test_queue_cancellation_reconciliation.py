@@ -5,6 +5,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from cryptography.fernet import Fernet
 from sqlalchemy import Column, DateTime, MetaData, String, Table, create_engine, select
 from sqlalchemy.orm import sessionmaker
 from starlette.requests import Request
@@ -12,6 +13,7 @@ from starlette.requests import Request
 import app.worker_tasks as worker_tasks
 from app.api import tasks as task_api
 from app.models.auth import AuthSessionInfo, AuthUser
+from app.services.dag_scheduler import DAGRunResult
 from app.services.workspace_access import ResolvedContext
 from app.services.workspace_permissions import CAPABILITIES, WorkspaceRole
 
@@ -109,3 +111,76 @@ async def test_queue_cancellation_persists_before_celery_revoke(
     assert response.status_code == 200
     assert running_task.cancel_requested is True
     assert events == ["persist", "revoke"]
+
+
+def test_full_queue_dag_preserves_cancelled_status_after_worker_returns(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    engine = create_engine(f"sqlite+pysqlite:///{tmp_path / 'queue_cancel_full.sqlite'}")
+    metadata = MetaData()
+    task_runs = Table(
+        "task_runs",
+        metadata,
+        Column("id", String, primary_key=True),
+        Column("status", String),
+        Column("workspace_id", String),
+        Column("updated_at", DateTime(timezone=False)),
+    )
+    metadata.create_all(engine)
+    session_factory = sessionmaker(bind=engine, expire_on_commit=False)
+    monkeypatch.setattr(worker_tasks, "SessionLocal", session_factory)
+    monkeypatch.setattr(worker_tasks, "get_db_path", lambda: tmp_path / "providers.db")
+    monkeypatch.setattr(worker_tasks, "get_fernet", lambda: Fernet.generate_key())
+
+    with session_factory() as session:
+        session.execute(
+            task_runs.insert().values(
+                id="task_cancelled_dag",
+                status="cancelled",
+                workspace_id="ws_queue",
+                updated_at=datetime.now(timezone.utc),
+            )
+        )
+        session.commit()
+
+    def _fake_execute_workflow_sync(**kwargs):
+        cancel_check = kwargs["cancel_check"]
+        assert cancel_check is not None
+        assert cancel_check() is True
+        return DAGRunResult(completed={}, failed={"adaptor_1": "cancelled"}, skipped=set())
+
+    monkeypatch.setattr(worker_tasks, "execute_workflow_sync", _fake_execute_workflow_sync)
+
+    result = worker_tasks.execute_workflow_task_sync(
+        "task_cancelled_dag",
+        {
+            "nodes": [
+                {"id": "input_1", "type": "input/text", "config": {"file": "$file_0"}},
+                {
+                    "id": "adaptor_1",
+                    "type": "processor/adaptor",
+                    "config": {"code": "def main(inputs):\n    return {'text': 'ok'}"},
+                },
+            ],
+            "connections": [{"source": "input_1", "target": "adaptor_1", "target_port": "input"}],
+        },
+        {
+            "input_1": {
+                "file_path": str(tmp_path / "input.txt"),
+                "filename": "input.txt",
+                "mime_type": "text/plain",
+                "workspace_id": "ws_queue",
+            }
+        },
+        context_data={"workspace_id": "ws_queue"},
+    )
+
+    assert result["status"] == "failed"
+    with session_factory() as session:
+        assert (
+            session.execute(
+                select(task_runs.c.status).where(task_runs.c.id == "task_cancelled_dag")
+            ).scalar_one()
+            == "cancelled"
+        )

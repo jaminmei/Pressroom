@@ -36,6 +36,10 @@ export function isMimeMatch(source: string, target: string): boolean {
     return true;
   }
 
+  if (target === "*/*" || source === "*/*") {
+    return true;
+  }
+
   if (source.endsWith("/*")) {
     const [sourcePrefix] = source.split("/");
     return target.startsWith(`${sourcePrefix}/`);

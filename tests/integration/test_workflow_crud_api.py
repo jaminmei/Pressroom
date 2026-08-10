@@ -62,6 +62,35 @@ def _definition() -> dict[str, object]:
     }
 
 
+def _binding_definition() -> dict[str, object]:
+    return {
+        "nodes": [
+            {"id": "input_1", "type": "input/image", "config": {"file": "$file_0"}},
+            {"id": "layout_1", "type": "processor/layout_detection", "config": {}},
+            {"id": "engine_1", "type": "engine/ocr", "config": {}},
+            {
+                "id": "adaptor_1",
+                "type": "processor/adaptor",
+                "config": {
+                    "code": "def main(inputs): return {'text': 'ok'}",
+                    "input_mode": "custom_bindings",
+                    "input_bindings": [
+                        {"name": "image", "selector": ["input_1", "binary"]},
+                        {"name": "regions", "selector": ["layout_1", "structured", "elements"]},
+                    ],
+                },
+            },
+            {"id": "end_1", "type": "end/final", "config": {}},
+        ],
+        "connections": [
+            {"source": "input_1", "target": "layout_1"},
+            {"source": "layout_1", "target": "adaptor_1"},
+            {"source": "layout_1", "target": "engine_1"},
+            {"source": "engine_1", "target": "end_1"},
+        ],
+    }
+
+
 @pytest.mark.anyio
 async def test_save_list_get_delete_workflow(isolated_workflow_crud_state: Path) -> None:
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
@@ -144,3 +173,56 @@ async def test_workflow_validation_contract_includes_severity(
     issues = body["details"]["errors"]
     assert all("severity" in issue for issue in issues)
     assert any(issue["severity"] == "blocking" for issue in issues)
+
+
+@pytest.mark.anyio
+async def test_save_get_preserves_adaptor_input_mode_and_bindings(
+    isolated_workflow_crud_state: Path,
+) -> None:
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        save_response = await client.post(
+            "/api/workflows/save",
+            json={
+                "name": "Binding Workflow",
+                "definition": _binding_definition(),
+            },
+        )
+
+        assert save_response.status_code == 200, save_response.text
+        workflow_id = save_response.json()["data"]["id"]
+
+        get_response = await client.get(f"/api/workflows/{workflow_id}")
+
+    assert get_response.status_code == 200, get_response.text
+    body = get_response.json()
+    adaptor = next(node for node in body["definition"]["nodes"] if node["id"] == "adaptor_1")
+    assert adaptor["config"]["input_mode"] == "custom_bindings"
+    assert adaptor["config"]["input_bindings"] == [
+        {"name": "image", "selector": ["input_1", "binary"]},
+        {"name": "regions", "selector": ["layout_1", "structured", "elements"]},
+    ]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("input_mode", ["", "bogus_mode"])
+async def test_save_rejects_invalid_adaptor_input_mode(
+    isolated_workflow_crud_state: Path,
+    input_mode: str,
+) -> None:
+    definition = _binding_definition()
+    adaptor = next(node for node in definition["nodes"] if node["id"] == "adaptor_1")
+    adaptor["config"]["input_mode"] = input_mode
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.post(
+            "/api/workflows/save",
+            json={"name": "bad mode", "definition": definition},
+        )
+
+    assert response.status_code == 422
+    body = response.json()
+    assert body["error_code"] == "WORKFLOW_VALIDATION_ERROR"
+    issue = next(
+        error for error in body["details"]["errors"] if error["code"] == "BINDING_INVALID_MODE"
+    )
+    assert issue["field"] == "config.input_mode"

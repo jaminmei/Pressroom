@@ -372,7 +372,11 @@ export function validateWorkflowDefinition(input: ValidateWorkflowInput): Workfl
 
     // Engine nodes and external processors require a provider_id
     // Built-in processors (handled by DAG scheduler) are excluded
-    const BUILTIN_PROCESSORS = new Set(["processor/document_to_image"]);
+    const BUILTIN_PROCESSORS = new Set([
+      "processor/document_to_image",
+      "processor/adaptor",
+      "processor/iteration"
+    ]);
     const category = categoryFromNodeType(node.type);
     const needsProvider = (category === "engine" || category === "processor") && !BUILTIN_PROCESSORS.has(node.type ?? "");
     if (needsProvider && !config.provider_id) {

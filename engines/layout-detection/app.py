@@ -19,8 +19,8 @@ POST /process accepts a named-input request:
 Returns a NodeOutput envelope:
 {
     "text": null,
-    "binary": [...],
-    "structured": {"elements": [...], "total_regions": N},
+    "binary": [],
+    "structured": {"kind": "layout_regions", "elements": [...], "total_regions": N},
     "metadata": {"processing_time_ms": N, "model": "..."}
 }
 """
@@ -269,53 +269,6 @@ async def get_layout_types(
     )
 
 
-def _crop_regions_to_base64(
-    image_data_b64: str,
-    regions: list[dict],
-) -> list[dict]:
-    """Crop all regions from the source image and return base64-encoded crops."""
-    try:
-        img_bytes = base64.b64decode(image_data_b64)
-    except Exception as exc:
-        logger.warning(
-            "Failed to decode base64 for region cropping; skipping crops error_type=%s",
-            type(exc).__name__,
-        )
-        return []
-    nparr = np.frombuffer(img_bytes, np.uint8)
-    img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-
-    if img is None:
-        logger.warning("Failed to decode image for region cropping; skipping crops")
-        return []
-
-    binary_output: list[dict] = []
-    for _i, region in enumerate(regions):
-        bbox = region.get("bbox", {})
-        x, y = int(bbox.get("x", 0)), int(bbox.get("y", 0))
-        w, h = int(bbox.get("width", 0)), int(bbox.get("height", 0))
-        if w <= 0 or h <= 0:
-            continue
-        x = max(0, x)
-        y = max(0, y)
-        h = min(h, img.shape[0] - y)
-        w = min(w, img.shape[1] - x)
-        if w <= 0 or h <= 0:
-            continue
-        crop = img[y : y + h, x : x + w]
-        _, crop_encoded = cv2.imencode(".png", crop)
-        crop_b64 = base64.b64encode(crop_encoded).decode("ascii")
-        binary_output.append(
-            {
-                "ref": "",
-                "data": crop_b64,
-                "mime_type": "image/png",
-                "dimensions": bbox,
-            }
-        )
-    return binary_output
-
-
 async def _detect_regions(base64_data, file_path, selected_types, config, engine):
     if base64_data:
         return engine.detect_from_base64(base64_data, selected_types), None
@@ -328,8 +281,9 @@ async def process_image(request: NewProcessRequest):  # type: ignore[assignment]
     Process an image for layout detection using the named-input request format.
 
     Expects ``inputs["image"]`` with base64 data in the ``text`` field (or a
-    file path in ``binary[0].ref``).  Returns a **NodeOutput** envelope with
-    cropped region images in ``binary`` and region metadata in ``structured``.
+    file path in ``binary[0].ref``). Returns a **NodeOutput** envelope with
+    bbox region metadata in ``structured`` and no copied image in ``binary``.
+    A downstream Adaptor can bind the image from an ancestor node separately.
 
     Config options (inside ``config``):
     - model: Model identifier
@@ -380,23 +334,20 @@ async def process_image(request: NewProcessRequest):  # type: ignore[assignment]
             base64_data, file_path, selected_types, config, engine
         )
 
-        # --- Post-processing: crop ALL regions as base64 -----------------------
-        binary_output: list[dict] = []
-        crop_b64 = base64_data
-        if not crop_b64 and file_path:
+        # --- Source dimensions for bbox rendering -------------------------------
+        source_b64 = base64_data
+        if not source_b64 and file_path:
             import pathlib as _pl
 
-            crop_b64 = base64.b64encode(_pl.Path(file_path).read_bytes()).decode("ascii")
-        if crop_b64:
-            binary_output = _crop_regions_to_base64(crop_b64, regions)
+            source_b64 = base64.b64encode(_pl.Path(file_path).read_bytes()).decode("ascii")
 
         processing_time_ms = int((time.time() - start_time) * 1000)
 
         # --- Build NodeOutput response ------------------------------------------
         page_dimensions = None
-        if crop_b64:
+        if source_b64:
             try:
-                _img_bytes = base64.b64decode(crop_b64)
+                _img_bytes = base64.b64decode(source_b64)
                 _nparr = np.frombuffer(_img_bytes, np.uint8)
                 _img = cv2.imdecode(_nparr, cv2.IMREAD_COLOR)
                 if _img is not None:
@@ -423,7 +374,7 @@ async def process_image(request: NewProcessRequest):  # type: ignore[assignment]
 
         return {
             "text": None,
-            "binary": binary_output,
+            "binary": [],
             "structured": structured,
             "metadata": metadata,
         }

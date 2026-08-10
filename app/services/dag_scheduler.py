@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import logging
 import mimetypes
 import os
@@ -22,6 +23,7 @@ from app.models.execution import (
 from app.models.task import TaskInputFile
 from app.models.workflow import WorkflowDefinition
 from app.services.event_store import EventStore
+from app.services.iteration_scope import TrustedIterationScope
 from app.services.node_registry import NodeRegistryService
 from app.storage.base import StorageAdapter
 
@@ -38,7 +40,7 @@ class DAGNode:
     node_id: str
     node_type: str
     config: dict[str, object]
-    named_inputs: dict[str, str] = field(default_factory=dict)  # port_name -> upstream_node_id
+    named_inputs: dict[str, list[str]] = field(default_factory=dict)
     dependencies: set[str] = field(default_factory=set)  # all upstream node IDs
 
 
@@ -56,6 +58,15 @@ class DAGRunResult:
     completed: dict[str, NodeOutput]
     failed: dict[str, str]  # node_id -> error message
     skipped: set[str]
+    failure_causes: dict[str, Exception] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class NodeExecutionContext:
+    run_id: str
+    completed_outputs: dict[str, NodeOutput]
+    trusted_iteration_scope: TrustedIterationScope | None = None
+    target_parent_node_id: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -64,7 +75,12 @@ class DAGRunResult:
 
 
 class NodeExecutor(Protocol):
-    async def __call__(self, node: DAGNode, inputs: dict[str, NodeOutput]) -> NodeOutput: ...
+    async def __call__(
+        self,
+        node: DAGNode,
+        inputs: dict[str, NodeOutput],
+        context: NodeExecutionContext | None = None,
+    ) -> NodeOutput: ...
 
 
 # ---------------------------------------------------------------------------
@@ -76,8 +92,9 @@ def build_dag(workflow: WorkflowDefinition) -> DAG:
     """Build a DAG from a workflow definition.
 
     For each WorkflowNode, create a DAGNode. For each WorkflowConnection,
-    populate ``named_inputs`` mapping ``target_port`` (or ``"default"``) to the
-    source node ID. Derive the dependency set, downstream adjacency, and root set.
+    populate ``named_inputs`` mapping ``target_port`` (or ``"default"``) to one
+    or more source node IDs. Derive the dependency set, downstream adjacency,
+    and root set.
     """
     nodes: dict[str, DAGNode] = {}
     downstream: dict[str, set[str]] = {}
@@ -98,7 +115,7 @@ def build_dag(workflow: WorkflowDefinition) -> DAG:
             continue
         source_id = conn.source
         port_name = conn.target_port or "default"
-        target.named_inputs[port_name] = source_id
+        target.named_inputs.setdefault(port_name, []).append(source_id)
         target.dependencies.add(source_id)
         downstream.setdefault(source_id, set()).add(conn.target)
 
@@ -139,12 +156,12 @@ def _resolve_default_ports(dag: DAG, node_registry: NodeRegistryService) -> None
             continue
 
         for vport in virtual_keys:
-            upstream_id = node.named_inputs.pop(vport)
+            upstream_ids = node.named_inputs.pop(vport)
             if vport == "context" and len(node_def.input_ports) > 1:
                 real_port = node_def.input_ports[-1].name
             else:
                 real_port = node_def.input_ports[0].name
-            node.named_inputs[real_port] = upstream_id
+            node.named_inputs.setdefault(real_port, []).extend(upstream_ids)
 
 
 # ---------------------------------------------------------------------------
@@ -246,8 +263,56 @@ def resolve_inputs(
     node: DAGNode,
     state: dict[str, NodeOutput],
 ) -> dict[str, NodeOutput]:
-    """Build ``{port_name: upstream_output}`` from ``node.named_inputs``."""
-    return {port: state[upstream_id] for port, upstream_id in node.named_inputs.items()}
+    """Build generic executor inputs from ``node.named_inputs``.
+
+    Generic engine and processor execution keeps the pre-Phase-02 contract:
+    each port resolves to one ``NodeOutput``. When multiple upstream nodes feed
+    the same port, the last connection wins to preserve legacy scheduler
+    semantics from the prior ``target.named_inputs[port] = source_id`` loop.
+    """
+    resolved: dict[str, NodeOutput] = {}
+    for port, upstream_ids in node.named_inputs.items():
+        if not upstream_ids:
+            continue
+        resolved[port] = state[upstream_ids[-1]]
+    return resolved
+
+
+def resolve_aggregated_inputs(
+    node: DAGNode,
+    state: dict[str, NodeOutput],
+) -> dict[str, NodeOutput | list[NodeOutput]]:
+    """Build inputs for built-in fan-in aggregators.
+
+    Phase 02 preserves all upstream IDs in the graph, but only built-in nodes
+    that already aggregate fan-in should receive list-valued port inputs.
+    """
+    resolved: dict[str, NodeOutput | list[NodeOutput]] = {}
+    for port, upstream_ids in node.named_inputs.items():
+        outputs = [state[upstream_id] for upstream_id in upstream_ids]
+        resolved[port] = outputs[0] if len(outputs) == 1 else outputs
+    return resolved
+
+
+def build_resolved_event_inputs(node: DAGNode, run_id: str) -> dict[str, ResolvedInput]:
+    """Build resolved_inputs map for event emission.
+
+    Generic execution uses the legacy last-connected upstream when a port has
+    multiple sources. Fan-in aggregators keep the first source ID in event
+    metadata because ``ResolvedInput`` remains singular in Phase 02.
+    """
+    resolved: dict[str, ResolvedInput] = {}
+    for port_name, upstream_ids in node.named_inputs.items():
+        if node.node_type == "end/final":
+            source_node_id = upstream_ids[0] if upstream_ids else ""
+        else:
+            source_node_id = upstream_ids[-1] if upstream_ids else ""
+        resolved[port_name] = ResolvedInput(
+            name=port_name,
+            source_node_id=source_node_id,
+            source_event_id=f"{run_id}:{source_node_id}",
+        )
+    return resolved
 
 
 # ---------------------------------------------------------------------------
@@ -361,6 +426,7 @@ class DAGScheduler:
         # 5. Track failed nodes (for skip propagation).
         failed: set[str] = set()
         failed_errors: dict[str, str] = {}  # node_id -> error message
+        failure_causes: dict[str, Exception] = {}
 
         running: set[str] = set()
 
@@ -512,6 +578,8 @@ class DAGScheduler:
                     events_flushed += 1
                     failed.add(nid)
                     failed_errors[nid] = str(result)
+                    if isinstance(result, Exception):
+                        failure_causes[nid] = result
                     continue
 
                 # Success path — result is NodeOutput.
@@ -529,6 +597,7 @@ class DAGScheduler:
             completed=completed_state,
             failed=failed_errors,
             skipped=skipped,
+            failure_causes=failure_causes,
         )
 
     # -- internals ------------------------------------------------------------
@@ -549,8 +618,7 @@ class DAGScheduler:
         Only engine/processor nodes go through the *executor* callback.
         Emits ``started`` / ``completed`` / ``failed`` events.
         """
-        inputs = resolve_inputs(node, state)
-        resolved_inputs = self._build_resolved_inputs(node, run_id)
+        resolved_inputs = build_resolved_event_inputs(node, run_id)
 
         # Emit "started" event.
         self._append_event(
@@ -565,11 +633,18 @@ class DAGScheduler:
             if node.node_type.startswith("input/"):
                 output = await self._execute_input_node(node, run_id, input_bindings)
             elif node.node_type == "end/final":
-                output = await self._execute_end_node(node, inputs)
+                output = await self._execute_end_node(node, resolve_aggregated_inputs(node, state))
             elif node.node_type == "processor/document_to_image":
-                output = await self._execute_document_to_image_processor(node, inputs, run_id)
+                output = await self._execute_document_to_image_processor(
+                    node, resolve_inputs(node, state), run_id
+                )
             else:
-                output = await executor(node, inputs)
+                output = await self._invoke_executor(
+                    executor,
+                    node,
+                    resolve_inputs(node, state),
+                    NodeExecutionContext(run_id=run_id, completed_outputs=state),
+                )
                 # Success — emit "completed" event.
                 self._append_event(
                     run_id=run_id,
@@ -603,19 +678,23 @@ class DAGScheduler:
         )
         return output
 
-    # -- event helpers --------------------------------------------------------
-
     @staticmethod
-    def _build_resolved_inputs(node: DAGNode, run_id: str) -> dict[str, ResolvedInput]:
-        """Build resolved_inputs map for event emission."""
-        resolved: dict[str, ResolvedInput] = {}
-        for port_name, upstream_id in node.named_inputs.items():
-            resolved[port_name] = ResolvedInput(
-                name=port_name,
-                source_node_id=upstream_id,
-                source_event_id=f"{run_id}:{upstream_id}",
-            )
-        return resolved
+    async def _invoke_executor(
+        executor: NodeExecutor,
+        node: DAGNode,
+        inputs: dict[str, NodeOutput],
+        context: NodeExecutionContext,
+    ) -> NodeOutput:
+        try:
+            parameter_count = len(inspect.signature(executor).parameters)
+        except (TypeError, ValueError):
+            parameter_count = 3
+
+        if parameter_count >= 3:
+            return await executor(node, inputs, context)
+        return await executor(node, inputs)
+
+    # -- event helpers --------------------------------------------------------
 
     # -- built-in node executors -----------------------------------------------
 
@@ -676,12 +755,14 @@ class DAGScheduler:
 
         # Get PDF path from upstream input
         pdf_path = None
-        for port_output in inputs.values():
-            if port_output.binary:
-                ref = port_output.binary[0].ref
+        for output_value in inputs.values():
+            if output_value.binary:
+                ref = output_value.binary[0].ref
                 if ref and os.path.isfile(ref):
                     pdf_path = ref
                     break
+            if pdf_path:
+                break
 
         if not pdf_path:
             raise ValueError("No PDF file received from upstream")
@@ -769,7 +850,9 @@ class DAGScheduler:
 
         raise ValueError(f"Invalid pages value: '{pages_str}'. Use '1', '1-3', or 'all'")
 
-    async def _execute_end_node(self, node: DAGNode, inputs: dict[str, NodeOutput]) -> NodeOutput:
+    async def _execute_end_node(
+        self, node: DAGNode, inputs: dict[str, NodeOutput | list[NodeOutput]]
+    ) -> NodeOutput:
         """Collect all upstream inputs, marking workflow completion."""
         if not inputs:
             return NodeOutput(metadata={"completed_nodes": []})
@@ -781,12 +864,17 @@ class DAGScheduler:
         completed_nodes: list[str] = []
 
         for port_name, upstream in inputs.items():
-            if upstream.text:
-                all_text_parts.append(upstream.text)
-            all_binary.extend(upstream.binary)
-            if upstream.structured:
-                all_structured[port_name] = upstream.structured
-            completed_nodes.append(port_name)
+            upstream_values = upstream if isinstance(upstream, list) else [upstream]
+            for index, upstream_value in enumerate(upstream_values):
+                if upstream_value.text:
+                    all_text_parts.append(upstream_value.text)
+                all_binary.extend(upstream_value.binary)
+                if upstream_value.structured:
+                    structured_key = (
+                        port_name if len(upstream_values) == 1 else f"{port_name}[{index}]"
+                    )
+                    all_structured[structured_key] = upstream_value.structured
+                completed_nodes.append(port_name)
 
         return NodeOutput(
             text="\n\n".join(all_text_parts) if all_text_parts else None,

@@ -99,10 +99,48 @@ function buildRegistry(): Pick<NodeRegistryResponse, "nodes" | "connection_rules
         display_name: "End",
         category: "end",
         config_schema: { type: "object", properties: {} },
-        input_types: ["text/markdown", "text/plain+formatted", "application/yaml"],
+        input_types: [
+          "text/raw",
+          "text/plain",
+          "text/markdown",
+          "image/*",
+          "application/x-iteration-output"
+        ],
+        input_ports: [{
+          name: "input",
+          accepted_types: [
+            "text/raw",
+            "text/plain",
+            "text/markdown",
+            "image/*",
+            "application/x-iteration-output"
+          ],
+          required: true,
+          max_connections: -1
+        }],
         output_types: [],
         max_inputs: -1,
         max_outputs: 0
+      },
+      {
+        node_type: "processor/adaptor",
+        display_name: "Adaptor",
+        category: "processor",
+        config_schema: { type: "object", properties: {} },
+        input_ports: [{ name: "input", accepted_types: ["*/*"], required: true, max_connections: -1 }],
+        output_types: ["application/x-adaptor-output"],
+        max_inputs: -1,
+        max_outputs: -1
+      },
+      {
+        node_type: "processor/iteration",
+        display_name: "Iteration",
+        category: "processor",
+        config_schema: { type: "object", properties: {} },
+        input_ports: [{ name: "input", accepted_types: ["*/*"], required: true, max_connections: 1 }],
+        output_types: ["application/x-iteration-output"],
+        max_inputs: 1,
+        max_outputs: -1
       }
     ],
     connection_rules: []
@@ -155,6 +193,16 @@ function buildNodes(): WorkflowNode[] {
       id: "end_1",
       type: "end/final",
       data: { label: "End", config: {}, configSchema: { type: "object", properties: {} } }
+    },
+    {
+      id: "adaptor_1",
+      type: "processor/adaptor",
+      data: { label: "Adaptor", config: {}, configSchema: { type: "object", properties: {} } }
+    },
+    {
+      id: "iteration_1",
+      type: "processor/iteration",
+      data: { label: "Iteration", config: {}, configSchema: { type: "object", properties: {} } }
     }
   ];
 }
@@ -266,5 +314,21 @@ describe("validateConnection", () => {
     );
 
     expectInvalidReason(result, "duplicate_edge");
+  });
+
+  it("treats universal mime target as compatible", () => {
+    const result = validateConnection(
+      buildInput({ sourceNodeId: "input_text", targetNodeId: "adaptor_1" })
+    );
+
+    expect(result).toEqual({ isValid: true, isTypeCompatible: true });
+  });
+
+  it("treats universal mime source as compatible with iteration input", () => {
+    const result = validateConnection(
+      buildInput({ sourceNodeId: "adaptor_1", targetNodeId: "iteration_1" })
+    );
+
+    expect(result).toEqual({ isValid: true, isTypeCompatible: true });
   });
 });

@@ -104,3 +104,61 @@ def test_restore_uses_published_version_definition() -> None:
     assert restored.workspace_id == WORKSPACE_ID
     assert restored.definition.nodes[1].id == "engine_1"
     assert restored.definition.nodes[2].id == "output_1"
+
+
+def test_restore_restores_snapshot_metadata_without_mutating_versions() -> None:
+    store = WorkflowStore()
+    workflow = store.create(
+        name="Workflow v1",
+        description="original description",
+        definition=_sample_definition("1"),
+        workspace_id=WORKSPACE_ID,
+    )
+
+    saved_v2 = store.save(
+        workflow_id=workflow.id,
+        workflow_key=workflow.workflow_key,
+        base_version=workflow.latest_version,
+        name="Workflow v2",
+        description="draft description",
+        definition=_sample_definition("2"),
+        workspace_id=WORKSPACE_ID,
+    )
+
+    original_versions = store.list_versions(workflow.id, workspace_id=WORKSPACE_ID)
+    version_one_snapshot = next(item for item in original_versions if item.version == 1)
+    version_two_snapshot = next(item for item in original_versions if item.version == 2)
+    version_one_definition_before = version_one_snapshot.definition.model_copy(deep=True)
+    version_two_definition_before = version_two_snapshot.definition.model_copy(deep=True)
+
+    restored = store.restore(workflow.id, version=1, workspace_id=WORKSPACE_ID)
+
+    assert restored is not None
+    assert restored.id == workflow.id
+    assert restored.workflow_key == workflow.workflow_key
+    assert restored.workspace_id == WORKSPACE_ID
+    assert restored.name == version_one_snapshot.name == "Workflow v1"
+    assert restored.description == version_one_snapshot.description == "original description"
+    assert restored.definition == version_one_snapshot.definition
+    assert restored.definition is not version_one_snapshot.definition
+    assert restored.latest_version == saved_v2.latest_version == 2
+    assert restored.published_version == saved_v2.published_version is None
+    assert len(restored.versions) == 2
+
+    restored.definition.nodes[1].config["encoding"] = "mutated-after-restore"
+
+    persisted_again = store.get(workflow.id, workspace_id=WORKSPACE_ID)
+    assert persisted_again is not None
+    assert persisted_again.definition.nodes[1].config["encoding"] == "utf-8"
+
+    versions_after_restore = store.list_versions(workflow.id, workspace_id=WORKSPACE_ID)
+    assert len(versions_after_restore) == 2
+    assert [item.version for item in versions_after_restore] == [2, 1]
+    assert (
+        next(item for item in versions_after_restore if item.version == 1).definition
+        == version_one_definition_before
+    )
+    assert (
+        next(item for item in versions_after_restore if item.version == 2).definition
+        == version_two_definition_before
+    )

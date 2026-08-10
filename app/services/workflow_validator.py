@@ -8,6 +8,12 @@ from pydantic import BaseModel, Field
 
 from app.config import get_settings
 from app.providers.store import ProviderStore
+from app.services.adaptor_bindings import (
+    BindingResolutionError,
+    validate_binding_name,
+    validate_selector,
+)
+from app.services.adaptor_resolver import compute_ancestor_closure, validate_input_mode
 from app.services.engine_client import _NODE_TYPE_TO_URL_KEY
 from app.services.node_registry import NodeRegistryService
 from app.services.topological_sort import CyclicDependencyError, build_execution_plan
@@ -75,6 +81,8 @@ class WorkflowValidator:
         warnings.extend(self._check_orphan_nodes(definition))
         errors.extend(self._check_connection_rules(definition))
         errors.extend(self._check_end_node_rules(definition))
+        errors.extend(self._check_adaptor_bindings(definition))
+        errors.extend(self._check_iteration_nodes(definition))
         errors.extend(self._check_dag(definition))
         errors.extend(self._check_provider_ids(definition, workspace_id=workspace_id))
 
@@ -587,6 +595,442 @@ class WorkflowValidator:
                 )
             ]
 
+    def _check_adaptor_bindings(self, definition: WorkflowDefinition) -> list[ValidationIssue]:
+        errors: list[ValidationIssue] = []
+        node_ids = {node.id for node in definition.nodes}
+
+        for node in definition.nodes:
+            if node.type != "processor/adaptor":
+                continue
+
+            raw_bindings = node.config.get("input_bindings", [])
+            input_mode = node.config.get("input_mode", "all_upstream")
+            if raw_bindings is None:
+                raw_bindings = []
+
+            if not isinstance(input_mode, str):
+                errors.append(
+                    ValidationIssue(
+                        code="BINDING_INVALID_MODE",
+                        message=f"節點 {node.id} 的 input_mode 無效",
+                        details={"node_id": node.id, "input_mode": "_invalid_type"},
+                        severity="blocking",
+                        node_id=node.id,
+                        field="config.input_mode",
+                    )
+                )
+                continue
+
+            try:
+                validate_input_mode(input_mode)
+            except BindingResolutionError:
+                errors.append(
+                    ValidationIssue(
+                        code="BINDING_INVALID_MODE",
+                        message=f"節點 {node.id} 的 input_mode 無效",
+                        details={"node_id": node.id, "input_mode": input_mode},
+                        severity="blocking",
+                        node_id=node.id,
+                        field="config.input_mode",
+                    )
+                )
+                continue
+
+            if not isinstance(raw_bindings, list):
+                errors.append(
+                    ValidationIssue(
+                        code="BINDING_INVALID_OBJECT",
+                        message=f"節點 {node.id} 的 input_bindings 必須是陣列",
+                        details={"node_id": node.id},
+                        severity="blocking",
+                        node_id=node.id,
+                        field="config.input_bindings",
+                    )
+                )
+                continue
+
+            if input_mode == "custom_bindings" and not raw_bindings:
+                errors.append(
+                    ValidationIssue(
+                        code="BINDING_INVALID_OBJECT",
+                        message=f"節點 {node.id} 的 custom_bindings 模式至少需要一個 binding",
+                        details={"node_id": node.id},
+                        severity="blocking",
+                        node_id=node.id,
+                        field="config.input_bindings",
+                    )
+                )
+                continue
+
+            ancestor_node_ids = compute_ancestor_closure(definition, node.id)
+            seen_names: set[str] = set()
+            for index, raw_binding in enumerate(raw_bindings):
+                field_prefix = f"config.input_bindings[{index}]"
+                if not isinstance(raw_binding, dict):
+                    errors.append(
+                        ValidationIssue(
+                            code="BINDING_INVALID_OBJECT",
+                            message=f"節點 {node.id} 的 binding 項目格式不正確",
+                            details={"node_id": node.id, "binding_index": index},
+                            severity="blocking",
+                            node_id=node.id,
+                            field=field_prefix,
+                        )
+                    )
+                    continue
+
+                raw_name = raw_binding.get("name")
+                raw_selector = raw_binding.get("selector")
+                if not isinstance(raw_name, str) or not isinstance(raw_selector, list):
+                    errors.append(
+                        ValidationIssue(
+                            code="BINDING_INVALID_OBJECT",
+                            message=f"節點 {node.id} 的 binding 必須包含 name 與 selector",
+                            details={"node_id": node.id, "binding_index": index},
+                            severity="blocking",
+                            node_id=node.id,
+                            field=field_prefix,
+                        )
+                    )
+                    continue
+
+                try:
+                    binding_name = validate_binding_name(raw_name)
+                except ValueError:
+                    errors.append(
+                        ValidationIssue(
+                            code="BINDING_INVALID_OBJECT",
+                            message=f"節點 {node.id} 的 binding name 不可為空",
+                            details={"node_id": node.id, "binding_index": index},
+                            severity="blocking",
+                            node_id=node.id,
+                            field=f"{field_prefix}.name",
+                        )
+                    )
+                    continue
+
+                if binding_name in seen_names:
+                    errors.append(
+                        ValidationIssue(
+                            code="BINDING_DUPLICATE_NAME",
+                            message=f"節點 {node.id} 的 binding name 重複：{binding_name}",
+                            details={"node_id": node.id, "binding_name": binding_name},
+                            severity="blocking",
+                            node_id=node.id,
+                            field="config.input_bindings",
+                        )
+                    )
+                else:
+                    seen_names.add(binding_name)
+
+                if not raw_selector or not all(
+                    isinstance(segment, str) for segment in raw_selector
+                ):
+                    errors.append(
+                        ValidationIssue(
+                            code="BINDING_INVALID_OBJECT",
+                            message=f"節點 {node.id} 的 binding selector 格式不正確",
+                            details={"node_id": node.id, "binding_index": index},
+                            severity="blocking",
+                            node_id=node.id,
+                            field=f"{field_prefix}.selector",
+                        )
+                    )
+                    continue
+
+                selector = list(raw_selector)
+                try:
+                    validate_selector(selector)
+                except ValueError as exc:
+                    errors.append(
+                        ValidationIssue(
+                            code="BINDING_INVALID_SELECTOR",
+                            message=f"節點 {node.id} 的 binding selector 無效",
+                            details={
+                                "node_id": node.id,
+                                "binding_name": binding_name,
+                                "selector": selector,
+                                "reason": str(exc),
+                            },
+                            severity="blocking",
+                            node_id=node.id,
+                            field=f"{field_prefix}.selector",
+                        )
+                    )
+                    continue
+
+                source_node_id = selector[0]
+                if source_node_id not in node_ids:
+                    errors.append(
+                        ValidationIssue(
+                            code="BINDING_UNKNOWN_NODE",
+                            message=f"節點 {node.id} 的 binding 指向不存在的節點：{source_node_id}",
+                            details={
+                                "node_id": node.id,
+                                "binding_name": binding_name,
+                                "selector": selector,
+                            },
+                            severity="blocking",
+                            node_id=node.id,
+                            field=f"{field_prefix}.selector",
+                        )
+                    )
+                    continue
+
+                if source_node_id == node.id or source_node_id not in ancestor_node_ids:
+                    errors.append(
+                        ValidationIssue(
+                            code="BINDING_NOT_ANCESTOR",
+                            message=f"節點 {node.id} 的 binding 來源必須是祖先節點",
+                            details={
+                                "node_id": node.id,
+                                "binding_name": binding_name,
+                                "selector": selector,
+                            },
+                            severity="blocking",
+                            node_id=node.id,
+                            field=f"{field_prefix}.selector",
+                        )
+                    )
+
+        return errors
+
+    def _check_iteration_nodes(self, definition: WorkflowDefinition) -> list[ValidationIssue]:
+        errors: list[ValidationIssue] = []
+        node_ids = {node.id for node in definition.nodes}
+
+        for node in definition.nodes:
+            if node.type != "processor/iteration":
+                continue
+
+            config = node.config if isinstance(node.config, dict) else {}
+            engine_node_type = config.get("engine_node_type")
+            engine_config = config.get("engine_config", {})
+            iterate_over = config.get("iterate_over", "binary")
+            item_input_port = config.get("item_input_port", "image")
+            mode = config.get("mode", "sequential")
+            max_concurrency = config.get("max_concurrency", 5)
+            error_handling = config.get("error_handling", "terminate")
+
+            invalid_fields: list[str] = []
+            inner_node_def = None
+            if not isinstance(engine_node_type, str) or not engine_node_type.strip():
+                invalid_fields.append("config.engine_node_type")
+            elif engine_node_type == "processor/iteration":
+                invalid_fields.append("config.engine_node_type")
+            else:
+                inner_node_def = self._node_registry.get_node_definition(engine_node_type)
+                if inner_node_def is None:
+                    invalid_fields.append("config.engine_node_type")
+            if not isinstance(engine_config, dict):
+                invalid_fields.append("config.engine_config")
+            if iterate_over not in {"binary", "structured.elements"}:
+                invalid_fields.append("config.iterate_over")
+            if not isinstance(item_input_port, str) or not item_input_port.strip():
+                invalid_fields.append("config.item_input_port")
+            if mode not in {"sequential", "parallel"}:
+                invalid_fields.append("config.mode")
+            if (
+                isinstance(max_concurrency, bool)
+                or not isinstance(max_concurrency, int)
+                or not 1 <= max_concurrency <= 10
+            ):
+                invalid_fields.append("config.max_concurrency")
+            if error_handling not in {"terminate", "continue", "remove_failed"}:
+                invalid_fields.append("config.error_handling")
+
+            for field_name in invalid_fields:
+                errors.append(
+                    ValidationIssue(
+                        code="ITERATION_INVALID_CONFIG",
+                        message=f"節點 {node.id} 的 iteration 設定無效",
+                        details={"node_id": node.id, "field": field_name},
+                        severity="blocking",
+                        node_id=node.id,
+                        field=field_name,
+                    )
+                )
+
+            if inner_node_def is not None and isinstance(engine_config, dict):
+                required_fields = inner_node_def.config_schema.get("required", [])
+                if isinstance(required_fields, list):
+                    for required_field in required_fields:
+                        if required_field not in engine_config:
+                            errors.append(
+                                ValidationIssue(
+                                    code="ITERATION_INVALID_CONFIG",
+                                    message=(
+                                        f"節點 {node.id} 的 iteration inner config 缺少必填欄位："
+                                        f"{required_field}"
+                                    ),
+                                    details={
+                                        "node_id": node.id,
+                                        "field": required_field,
+                                        "engine_node_type": engine_node_type,
+                                    },
+                                    severity="blocking",
+                                    node_id=node.id,
+                                    field=f"config.engine_config.{required_field}",
+                                )
+                            )
+
+            if engine_node_type != "processor/adaptor" or not isinstance(engine_config, dict):
+                continue
+
+            input_mode = engine_config.get("input_mode", "all_upstream")
+            raw_bindings = engine_config.get("input_bindings", [])
+            if not isinstance(input_mode, str) or input_mode not in {
+                "all_upstream",
+                "custom_bindings",
+            }:
+                errors.append(
+                    ValidationIssue(
+                        code="ITERATION_INVALID_CONFIG",
+                        message=f"節點 {node.id} 的 iteration adaptor input_mode 無效",
+                        details={"node_id": node.id},
+                        severity="blocking",
+                        node_id=node.id,
+                        field="config.engine_config.input_mode",
+                    )
+                )
+                continue
+            if not isinstance(raw_bindings, list):
+                errors.append(
+                    ValidationIssue(
+                        code="ITERATION_INVALID_CONFIG",
+                        message=f"節點 {node.id} 的 iteration adaptor input_bindings 必須是陣列",
+                        details={"node_id": node.id},
+                        severity="blocking",
+                        node_id=node.id,
+                        field="config.engine_config.input_bindings",
+                    )
+                )
+                continue
+            if input_mode == "custom_bindings" and not raw_bindings:
+                errors.append(
+                    ValidationIssue(
+                        code="ITERATION_INVALID_CONFIG",
+                        message=(
+                            f"節點 {node.id} 的 iteration adaptor custom_bindings "
+                            "至少需要一個 binding"
+                        ),
+                        details={"node_id": node.id},
+                        severity="blocking",
+                        node_id=node.id,
+                        field="config.engine_config.input_bindings",
+                    )
+                )
+                continue
+
+            ancestor_node_ids = compute_ancestor_closure(definition, node.id)
+            seen_names: set[str] = set()
+            for index, raw_binding in enumerate(raw_bindings):
+                field_prefix = f"config.engine_config.input_bindings[{index}].selector"
+                if not isinstance(raw_binding, dict):
+                    errors.append(
+                        ValidationIssue(
+                            code="ITERATION_INVALID_CONFIG",
+                            message=f"節點 {node.id} 的 iteration adaptor binding 格式不正確",
+                            details={"node_id": node.id, "binding_index": index},
+                            severity="blocking",
+                            node_id=node.id,
+                            field=field_prefix,
+                        )
+                    )
+                    continue
+                raw_name = raw_binding.get("name")
+                selector = raw_binding.get("selector")
+                if not isinstance(raw_name, str):
+                    errors.append(
+                        ValidationIssue(
+                            code="ITERATION_INVALID_CONFIG",
+                            message=f"節點 {node.id} 的 iteration adaptor binding name 無效",
+                            details={"node_id": node.id, "binding_index": index},
+                            severity="blocking",
+                            node_id=node.id,
+                            field=f"config.engine_config.input_bindings[{index}].name",
+                        )
+                    )
+                    continue
+                binding_name = raw_name.strip()
+                if not binding_name:
+                    errors.append(
+                        ValidationIssue(
+                            code="ITERATION_INVALID_CONFIG",
+                            message=f"節點 {node.id} 的 iteration adaptor binding name 不可為空",
+                            details={"node_id": node.id, "binding_index": index},
+                            severity="blocking",
+                            node_id=node.id,
+                            field=f"config.engine_config.input_bindings[{index}].name",
+                        )
+                    )
+                    continue
+                if binding_name in seen_names:
+                    errors.append(
+                        ValidationIssue(
+                            code="ITERATION_INVALID_CONFIG",
+                            message=(
+                                f"節點 {node.id} 的 iteration adaptor binding name 重複："
+                                f"{binding_name}"
+                            ),
+                            details={"node_id": node.id, "binding_index": index},
+                            severity="blocking",
+                            node_id=node.id,
+                            field=f"config.engine_config.input_bindings[{index}].name",
+                        )
+                    )
+                else:
+                    seen_names.add(binding_name)
+                if (
+                    not isinstance(selector, list)
+                    or not selector
+                    or not all(isinstance(segment, str) for segment in selector)
+                ):
+                    errors.append(
+                        ValidationIssue(
+                            code="ITERATION_INVALID_CONFIG",
+                            message=f"節點 {node.id} 的 iteration adaptor selector 格式不正確",
+                            details={"node_id": node.id, "binding_index": index},
+                            severity="blocking",
+                            node_id=node.id,
+                            field=field_prefix,
+                        )
+                    )
+                    continue
+                source_node_id = selector[0]
+                if source_node_id == node.id:
+                    if len(selector) < 2 or selector[1] not in {"item", "index"}:
+                        errors.append(
+                            ValidationIssue(
+                                code="ITERATION_INVALID_CONFIG",
+                                message=(
+                                    f"節點 {node.id} 的 iteration adaptor self "
+                                    "selector 只允許 item/index"
+                                ),
+                                details={"node_id": node.id, "selector": selector},
+                                severity="blocking",
+                                node_id=node.id,
+                                field=field_prefix,
+                            )
+                        )
+                    continue
+                if source_node_id not in node_ids or source_node_id not in ancestor_node_ids:
+                    errors.append(
+                        ValidationIssue(
+                            code="ITERATION_INVALID_CONFIG",
+                            message=(
+                                f"節點 {node.id} 的 iteration adaptor selector 必須指向祖先節點"
+                            ),
+                            details={"node_id": node.id, "selector": selector},
+                            severity="blocking",
+                            node_id=node.id,
+                            field=field_prefix,
+                        )
+                    )
+                    continue
+
+        return errors
+
     def _check_provider_ids(
         self,
         definition: WorkflowDefinition,
@@ -683,6 +1127,8 @@ class WorkflowValidator:
 
     def _match_type(self, source: str, target: str) -> bool:
         if source == target:
+            return True
+        if source == "*/*" or target == "*/*":
             return True
         if source.endswith("/*"):
             return target.startswith(source[:-1])

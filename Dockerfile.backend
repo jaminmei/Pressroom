@@ -16,5 +16,6 @@ RUN pip install --no-cache-dir --require-hashes -r /app/requirements.lock
 COPY app /app/app
 COPY alembic /app/alembic
 COPY scripts /app/scripts
+COPY sandbox_protocol /app/sandbox_protocol
 
 ENV PYTHONPATH=/app

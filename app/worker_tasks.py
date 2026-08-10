@@ -22,7 +22,7 @@ from app.models.task import TaskInputFile
 from app.models.workflow import WorkflowDefinition
 from app.providers.auth import AuthResolver
 from app.providers.db import get_db_path
-from app.providers.encryption import get_fernet
+from app.providers.encryption import EncryptionError, get_fernet
 from app.providers.plugin_loader import bootstrap_provider_registry
 from app.providers.store import ProviderStore
 from app.services.dag_scheduler import DAGScheduler
@@ -84,9 +84,6 @@ def register_worker_tasks(celery_app: Celery) -> None:
         input_data: dict[str, object],
         context_data: dict[str, object] | None = None,
     ) -> dict[str, object]:
-        engine_node = _resolve_engine_node(workflow_def)
-        node_id = str(engine_node.get("id", "engine_1"))
-        node_type = str(engine_node.get("type", "engine/ocr"))
         retry_count = int(getattr(getattr(task_self, "request", object()), "retries", 0))
         max_retries = int(getattr(task_self, "max_retries", QUEUE_TASK_MAX_RETRIES))
         try:
@@ -100,6 +97,8 @@ def register_worker_tasks(celery_app: Celery) -> None:
                 max_retries=max_retries,
             )
         except EngineError as error:
+            node_id = _retry_failed_node_id(workflow_def, error)
+            node_type = _retry_failed_node_type(workflow_def, node_id, error)
             _retry_or_raise_engine_error(
                 task_self=task_self,
                 error=error,
@@ -166,6 +165,9 @@ def execute_workflow_task_sync(
             workflow_def=workflow_def,
             input_data=input_data,
             context_data=context_data,
+            enable_task_retry=enable_task_retry,
+            retry_count=retry_count,
+            max_retries=max_retries,
         )
 
     started_at = _now()
@@ -626,7 +628,15 @@ async def _run_evaluation_document_body(
         storage=get_storage(),
     )
     engine_client = EngineClient(settings=get_settings())
-    store = ProviderStore(db_path=get_db_path(), fernet=get_fernet())
+    auth_resolver: AuthResolver | None = None
+    store: ProviderStore | None = None
+    try:
+        fernet = get_fernet()
+    except EncryptionError:
+        fernet = None
+    if fernet is not None:
+        auth_resolver = AuthResolver(fernet=fernet)
+        store = ProviderStore(db_path=get_db_path(), fernet=fernet)
     started_at = _now()
 
     try:
@@ -637,6 +647,7 @@ async def _run_evaluation_document_body(
             workspace_id=workspace_id,
             dag_scheduler=dag_scheduler,
             engine_client=engine_client,
+            auth_resolver=auth_resolver,
             store=store,
             node_executor=node_executor,
         )
@@ -698,7 +709,8 @@ async def _run_evaluation_engine_call(
     workspace_id: str,
     dag_scheduler: DAGScheduler,
     engine_client: EngineClient,
-    store: ProviderStore,
+    auth_resolver: AuthResolver | None,
+    store: ProviderStore | None,
     node_executor: "NodeExecutor | None",
 ) -> "DAGRunResult":
     from app.services.durable_workflow_execution import (
@@ -708,7 +720,7 @@ async def _run_evaluation_engine_call(
     service = DurableWorkflowExecutionService(
         dag_scheduler=dag_scheduler,
         engine_client=engine_client,
-        auth_resolver=AuthResolver(fernet=get_fernet()),
+        auth_resolver=auth_resolver,
         provider_store=store,
     )
     return await service.execute(
@@ -814,6 +826,9 @@ def _execute_full_workflow_task_sync(
     workflow_def: dict[str, object],
     input_data: dict[str, object],
     context_data: dict[str, object] | None,
+    enable_task_retry: bool = False,
+    retry_count: int = 0,
+    max_retries: int = QUEUE_TASK_MAX_RETRIES,
 ) -> dict[str, object]:
     context_data = context_data or {}
     workspace_id = _optional_str(context_data.get("workspace_id"))
@@ -864,7 +879,34 @@ def _execute_full_workflow_task_sync(
             engine_client=engine_client,
             auth_resolver=AuthResolver(fernet=get_fernet()),
             provider_store=store,
+            cancel_check=lambda: _task_is_cancelled(task_run_id),
         )
+        retryable_failure = next(
+            (
+                cause
+                for cause in result.failure_causes.values()
+                if isinstance(cause, EngineError) and _is_retryable_engine_error(cause)
+            ),
+            None,
+        )
+        if retryable_failure is not None and enable_task_retry and retry_count < max_retries:
+            if isinstance(retryable_failure.details, dict):
+                failed_node_id = next(
+                    (
+                        node_id
+                        for node_id, cause in result.failure_causes.items()
+                        if cause is retryable_failure
+                    ),
+                    None,
+                )
+                if failed_node_id is not None:
+                    retryable_failure.details.setdefault("failed_node_id", failed_node_id)
+                    node = workflow.get_node(failed_node_id)
+                    if node is not None:
+                        retryable_failure.details.setdefault("failed_node_type", node.type)
+            raise retryable_failure
+    except EngineError:
+        raise
     except Exception as exc:
         failed_at = _now()
         with SessionLocal() as session:
@@ -971,6 +1013,69 @@ def _resolve_engine_node(workflow_def: dict[str, object]) -> dict[str, object]:
         if isinstance(node, dict) and str(node.get("type", "")).startswith("engine/"):
             return node
     raise ValueError("Workflow definition does not contain engine node")
+
+
+def _retry_fallback_node(workflow_def: dict[str, object]) -> dict[str, object] | None:
+    nodes_value = workflow_def.get("nodes", [])
+    nodes = (
+        [node for node in nodes_value if isinstance(node, dict)]
+        if isinstance(nodes_value, list)
+        else []
+    )
+
+    adaptor_nodes = [node for node in nodes if str(node.get("type", "")) == "processor/adaptor"]
+    if len(adaptor_nodes) == 1:
+        return adaptor_nodes[0]
+
+    for node in nodes:
+        node_type = str(node.get("type", ""))
+        if node_type.startswith("engine/") or node_type == "processor/adaptor":
+            return node
+
+    return None
+
+
+def _retry_failed_node_id(workflow_def: dict[str, object], error: EngineError) -> str:
+    details = error.details if isinstance(error.details, dict) else {}
+    failed_node_id = details.get("failed_node_id")
+    if isinstance(failed_node_id, str) and failed_node_id:
+        return failed_node_id
+    fallback_node = _retry_fallback_node(workflow_def)
+    if fallback_node is None:
+        return "node_1"
+    return str(fallback_node.get("id", "node_1"))
+
+
+def _retry_failed_node_type(
+    workflow_def: dict[str, object],
+    node_id: str,
+    error: EngineError,
+) -> str:
+    details = error.details if isinstance(error.details, dict) else {}
+    failed_node_type = details.get("failed_node_type")
+    if isinstance(failed_node_type, str) and failed_node_type:
+        return failed_node_type
+    nodes_value = workflow_def.get("nodes", [])
+    nodes = nodes_value if isinstance(nodes_value, list) else []
+    for node in nodes:
+        if isinstance(node, dict) and str(node.get("id", "")) == node_id:
+            return str(node.get("type", "engine/ocr"))
+    fallback_node = _retry_fallback_node(workflow_def)
+    if fallback_node is None:
+        return "engine/unknown"
+    return str(fallback_node.get("type", "engine/unknown"))
+
+
+def _task_is_cancelled(task_run_id: str) -> bool:
+    with SessionLocal() as session:
+        columns = _table_columns(session, "task_runs")
+        if not {"id", "status"}.issubset(columns):
+            return False
+        status = session.execute(
+            text("SELECT status FROM task_runs WHERE id = :task_run_id"),
+            {"task_run_id": task_run_id},
+        ).scalar_one_or_none()
+        return bool(status == "cancelled")
 
 
 def _parse_engine_type(node_type: str) -> str:
