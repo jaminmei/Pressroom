@@ -1,0 +1,19 @@
+FROM python:3.11-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+
+WORKDIR /app
+
+RUN groupadd -g 10003 sandbox && useradd -u 10001 -g 10003 -M -s /usr/sbin/nologin runner
+RUN mkdir -p /run/adaptor-sandbox && chown -R 10001:10003 /run/adaptor-sandbox && chmod 0770 /run/adaptor-sandbox
+
+COPY requirements.lock /app/requirements.lock
+RUN pip install --no-cache-dir --require-hashes -r /app/requirements.lock
+
+COPY sandbox_protocol /app/sandbox_protocol
+COPY engines/adaptor_sandbox /app/engines/adaptor_sandbox
+
+USER 10001:10003
+
+CMD ["python", "-m", "engines.adaptor_sandbox.runner.server"]

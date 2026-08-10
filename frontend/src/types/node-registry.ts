@@ -21,6 +21,7 @@ export interface NodeConfigSchemaString extends NodeConfigSchemaBase {
   type: "string";
   enum?: string[];
   enum_metadata?: Record<string, EnumMetadataItem>;
+  minLength?: number;
   pattern?: string;
   schema_type?: "text" | "json";
   cascade_metadata?: CascadeMetadata;
@@ -42,15 +43,33 @@ export interface NodeConfigSchemaFile extends NodeConfigSchemaBase {
   max_size_mb?: number;
 }
 
-export interface NodeConfigSchemaArrayItems {
+export interface NodeConfigSchemaArrayStringItems {
   type: "string";
   enum?: string[];
   enum_metadata?: Record<string, EnumMetadataItem>;
+  minLength?: number;
 }
+
+export interface NodeConfigSchemaObject extends NodeConfigSchemaBase {
+  type: "object";
+  properties?: Record<string, NodeConfigSchemaProperty>;
+  required?: string[];
+}
+
+export interface NodeConfigSchemaArrayObjectItems {
+  type: "object";
+  properties?: Record<string, NodeConfigSchemaProperty>;
+  required?: string[];
+}
+
+export type NodeConfigSchemaArrayItems =
+  | NodeConfigSchemaArrayStringItems
+  | NodeConfigSchemaArrayObjectItems;
 
 export interface NodeConfigSchemaArray extends NodeConfigSchemaBase {
   type: "array";
   items?: NodeConfigSchemaArrayItems;
+  minItems?: number;
   cascade_metadata?: CascadeMetadata;
 }
 
@@ -59,7 +78,8 @@ export type NodeConfigSchemaProperty =
   | NodeConfigSchemaInteger
   | NodeConfigSchemaBoolean
   | NodeConfigSchemaFile
-  | NodeConfigSchemaArray;
+  | NodeConfigSchemaArray
+  | NodeConfigSchemaObject;
 
 export interface ModelGroupInfo {
   display_name: string;

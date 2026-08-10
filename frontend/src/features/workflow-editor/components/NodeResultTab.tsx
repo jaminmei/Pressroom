@@ -1,9 +1,10 @@
 import { ReloadOutlined } from "@ant-design/icons";
-import { Button, Empty, Image, Spin, Tag, Typography } from "antd";
+import { Button, Collapse, Empty, Image, Spin, Tag, Typography } from "antd";
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import BinaryImagePreview from "./BinaryImagePreview";
+import type { BindingSource } from "@/features/workflow-editor/types/inputBindings";
 import LayoutDetectionResultView from "@/features/workflow-editor/components/LayoutDetectionResultView";
 import { useTaskExecutionStore, type TaskNodeVisualStatus } from "@/features/task-execution/store";
 import { useWorkflowStore } from "@/features/workflow-editor/store";
@@ -172,6 +173,183 @@ function MetadataView({ metadata }: { metadata: Record<string, unknown> }) {
   );
 }
 
+interface IterationResultItem {
+  index: number;
+  status: "success" | "error" | string;
+  error?: string | null;
+  output?: unknown;
+}
+
+interface IterationResultStructured {
+  kind?: string;
+  items?: IterationResultItem[];
+  total?: number;
+  success_count?: number;
+  error_count?: number;
+}
+
+interface AdaptorInputSourceEntry {
+  name: string;
+  source: BindingSource;
+}
+
+function asBindingSource(value: unknown): BindingSource | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const candidate = value as Record<string, unknown>;
+  if (typeof candidate.node_id !== "string" || !Array.isArray(candidate.output_path)) {
+    return null;
+  }
+
+  const outputPath = candidate.output_path.filter((segment): segment is string => typeof segment === "string");
+  return { node_id: candidate.node_id, output_path: outputPath };
+}
+
+function extractAdaptorInputSources(output: NodeOutput): AdaptorInputSourceEntry[] {
+  const metadataSources = output.metadata?.input_sources;
+  if (metadataSources && typeof metadataSources === "object") {
+    const entries = Object.entries(metadataSources as Record<string, unknown>)
+      .map(([name, value]) => {
+        const source = asBindingSource(value);
+        return source ? { name, source } : null;
+      })
+      .filter((entry): entry is AdaptorInputSourceEntry => entry !== null);
+    if (entries.length > 0) {
+      return entries;
+    }
+  }
+
+  const structuredBindings = output.structured;
+  if (structuredBindings && typeof structuredBindings === "object") {
+    return Object.entries(structuredBindings)
+      .map(([name, value]) => {
+        if (!value || typeof value !== "object") {
+          return null;
+        }
+
+        const metadata = (value as Record<string, unknown>).metadata;
+        if (!metadata || typeof metadata !== "object") {
+          return null;
+        }
+
+        const source = asBindingSource((metadata as Record<string, unknown>)._binding_source);
+        return source ? { name, source } : null;
+      })
+      .filter((entry): entry is AdaptorInputSourceEntry => entry !== null);
+  }
+
+  return [];
+}
+
+function AdaptorInputSourcesView({ entries }: { entries: AdaptorInputSourceEntry[] }) {
+  const { t } = useTranslation("workflows");
+
+  if (entries.length === 0) {
+    return null;
+  }
+
+  return (
+    <Collapse
+      defaultActiveKey={["input-sources"]}
+      items={[
+        {
+          key: "input-sources",
+          label: t("editorText.inputSources"),
+          children: (
+            <table data-testid="adaptor-input-sources-table" style={{ width: "100%" }}>
+              <thead>
+                <tr>
+                  <th align="left">{t("common:name")}</th>
+                  <th align="left">{t("editorText.sourceNodeId")}</th>
+                  <th align="left">{t("editorText.sourceOutputPath")}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {entries.map((entry) => (
+                  <tr key={`${entry.name}-${entry.source.node_id}-${entry.source.output_path.join(".")}`}>
+                    <td>{entry.name}</td>
+                    <td>{entry.source.node_id}</td>
+                    <td>{entry.source.output_path.join(".")}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )
+        }
+      ]}
+      size="small"
+    />
+  );
+}
+
+function IterationResultView({ structured }: { structured: IterationResultStructured }) {
+  const { t } = useTranslation("workflows");
+  const items = Array.isArray(structured.items) ? structured.items : [];
+  const total = typeof structured.total === "number" ? structured.total : items.length;
+  const successCount = typeof structured.success_count === "number"
+    ? structured.success_count
+    : items.filter((item) => item.status === "success").length;
+  const errorCount = typeof structured.error_count === "number"
+    ? structured.error_count
+    : items.filter((item) => item.status === "error").length;
+
+  return (
+    <div className="node-result-iteration" data-testid="node-result-iteration">
+      <div className="node-result-iteration-summary">
+        <div className="node-result-iteration-summary-card">
+          <Typography.Text type="secondary">{t("editorText.iterationTotalItems")}</Typography.Text>
+          <Typography.Text strong>{total}</Typography.Text>
+        </div>
+        <div className="node-result-iteration-summary-card">
+          <Typography.Text type="secondary">{t("editorText.iterationSuccess")}</Typography.Text>
+          <Typography.Text strong>{successCount}</Typography.Text>
+        </div>
+        <div className="node-result-iteration-summary-card">
+          <Typography.Text type="secondary">{t("editorText.iterationErrors")}</Typography.Text>
+          <Typography.Text strong>{errorCount}</Typography.Text>
+        </div>
+      </div>
+
+      {items.length === 0 ? (
+        <Empty description={t("editorText.noIterationItems")} image={Empty.PRESENTED_IMAGE_SIMPLE} />
+      ) : (
+        <div className="node-result-iteration-list">
+          {items.map((item) => {
+            const isSuccess = item.status === "success";
+            const outputJson = item.output == null ? "null" : JSON.stringify(item.output, null, 2);
+
+            return (
+              <div className="node-result-iteration-item" key={`${item.index}-${item.status}`}>
+                <div className="node-result-iteration-item-header">
+                  <div className="node-result-iteration-item-title">
+                    <Typography.Text strong>{t("editorText.iterationItem", { index: item.index })}</Typography.Text>
+                    <Tag color={isSuccess ? "success" : "error"}>{item.status}</Tag>
+                  </div>
+                  {item.error ? (
+                    <Typography.Text type="danger">{item.error}</Typography.Text>
+                  ) : null}
+                </div>
+                <Collapse
+                  items={[
+                    {
+                      key: `iteration-output-${item.index}`,
+                      label: t("editorText.iterationOutputDetail"),
+                      children: <pre className="node-result-raw" style={{ maxHeight: 240, overflow: "auto" }}>{outputJson}</pre>
+                    }
+                  ]}
+                  size="small"
+                />
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /**
  * Render the new NodeOutput format.
  * - Image input: shows image preview via /nodes/{id}/image endpoint, with Raw toggle.
@@ -185,6 +363,22 @@ function summarizeBinaryForJson(binary: NodeOutput["binary"]): NodeOutput["binar
     }
     return entry;
   });
+}
+
+function summarizeAdaptorOutputForJson(output: NodeOutput): Record<string, unknown> {
+  const summarized: Record<string, unknown> = {};
+
+  if (output.text != null) {
+    summarized.text = output.text;
+  }
+  if (output.binary.length > 0) {
+    summarized.binary = summarizeBinaryForJson(output.binary);
+  }
+  if (output.structured != null) {
+    summarized.structured = output.structured;
+  }
+
+  return summarized;
 }
 
 function NewOutputView({
@@ -203,13 +397,34 @@ function NewOutputView({
   const isImageInput = nodeType === "input/image";
   const isPdfInput = nodeType === "input/pdf";
   const isImageProducer = nodeType === "processor/document_to_image";
+  const adaptorInputSources = nodeType === "processor/adaptor" ? extractAdaptorInputSources(output) : [];
+  const shouldRenderGenericMetadata = nodeType !== "processor/adaptor";
   const hasVisualPreview = isImageInput || isPdfInput || isImageProducer;
-  const structured = output.structured as { kind?: string; elements?: Array<{ type?: string }> } | null;
+  const structured = output.structured as IterationResultStructured & { elements?: Array<{ type?: string }> } | null;
   const hasBinaryPreview = output.binary.length > 0;
-  const isLayoutDetection = structured?.kind === "layout_regions" || (Array.isArray(structured?.elements) && nodeType === "layout_detection");
+  const isLayoutDetection = structured?.kind === "layout_regions"
+    || (Array.isArray(structured?.elements)
+      && (nodeType === "layout_detection" || nodeType === "processor/layout_detection"));
   const labels = isLayoutDetection && Array.isArray(structured?.elements)
     ? structured.elements.map((element) => element.type ?? "")
     : undefined;
+
+  if (isLayoutDetection && Array.isArray(structured?.elements)) {
+    const layoutElements = structured.elements as Block[];
+    return (
+      <div className="node-result-section">
+        <LayoutDetectionResultView
+          blockCount={layoutElements.length}
+          blocks={layoutElements}
+          imageUrl={getNodeImageUrl(taskId, nodeId)}
+          nodeId={nodeId}
+        />
+        {output.metadata && Object.keys(output.metadata).length > 0 ? (
+          <MetadataView metadata={output.metadata} />
+        ) : null}
+      </div>
+    );
+  }
 
   // Raw mode for visual nodes: show full JSON dump
   if (viewMode === "raw" && hasVisualPreview) {
@@ -244,7 +459,8 @@ function NewOutputView({
           </div>
         </div>
         <ImageResultView imageUrl={imageUrl} />
-        {output.metadata && Object.keys(output.metadata).length > 0 ? (
+        <AdaptorInputSourcesView entries={adaptorInputSources} />
+        {shouldRenderGenericMetadata && output.metadata && Object.keys(output.metadata).length > 0 ? (
           <MetadataView metadata={output.metadata} />
         ) : null}
       </div>
@@ -267,7 +483,20 @@ function NewOutputView({
           style={{ width: "100%", height: "500px", border: "none", borderRadius: 8 }}
           title={t("editorText.pdfPreview")}
         />
-        {output.metadata && Object.keys(output.metadata).length > 0 ? (
+        <AdaptorInputSourcesView entries={adaptorInputSources} />
+        {shouldRenderGenericMetadata && output.metadata && Object.keys(output.metadata).length > 0 ? (
+          <MetadataView metadata={output.metadata} />
+        ) : null}
+      </div>
+    );
+  }
+
+  if (structured?.kind === "iteration_result") {
+    return (
+      <div className="node-result-section">
+        <IterationResultView structured={structured} />
+        <AdaptorInputSourcesView entries={adaptorInputSources} />
+        {shouldRenderGenericMetadata && output.metadata && Object.keys(output.metadata).length > 0 ? (
           <MetadataView metadata={output.metadata} />
         ) : null}
       </div>
@@ -277,14 +506,18 @@ function NewOutputView({
   // Engine/output nodes: raw JSON only, no toggle
   return (
     <div className="node-result-section">
+      <AdaptorInputSourcesView entries={adaptorInputSources} />
       <pre className="node-result-raw">{
         JSON.stringify(
-          output.structured ?? { ...output, binary: summarizeBinaryForJson(output.binary) },
+          output.structured
+            ?? (nodeType === "processor/adaptor"
+              ? summarizeAdaptorOutputForJson(output)
+              : { ...output, binary: summarizeBinaryForJson(output.binary) }),
           null,
           2
         )
       }</pre>
-      {output.metadata && Object.keys(output.metadata).length > 0 ? (
+      {shouldRenderGenericMetadata && output.metadata && Object.keys(output.metadata).length > 0 ? (
         <MetadataView metadata={output.metadata} />
       ) : null}
       {hasBinaryPreview ? (

@@ -133,10 +133,12 @@ class TestNodeRegistryContract:
         input_port = next((p for p in node_def.input_ports if p.name == "input"), None)
         assert input_port is not None
         assert input_port.accepted_types == [
+            "application/x-adaptor-output",
             "text/raw",
             "text/plain",
             "text/markdown",
             "image/*",
+            "application/x-iteration-output",
         ]
 
     def test_connection_rules_empty(self, registry: NodeRegistryService) -> None:

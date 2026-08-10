@@ -10,9 +10,10 @@ from __future__ import annotations
 import asyncio
 import json
 import time
+from collections.abc import Generator
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -45,7 +46,7 @@ class _SnapshotRepository:
         payload["task_id"] = task_id
         if payload["results"] is not None:
             payload["results"] = list(payload["results"])
-        self.snapshots[task_id] = TaskRunSnapshot(**payload)
+        self.snapshots[task_id] = TaskRunSnapshot(**cast(Any, payload))
 
     async def get_snapshot(
         self,
@@ -77,7 +78,7 @@ class _SnapshotRepository:
 
 
 class _ImmediateScheduler:
-    async def run(self, workflow, **_kwargs: Any) -> DAGRunResult:
+    async def run(self, workflow: Any, **_kwargs: Any) -> DAGRunResult:
         return DAGRunResult(
             completed={
                 node.id: NodeOutput(
@@ -91,13 +92,20 @@ class _ImmediateScheduler:
         )
 
 
+class _RuntimeProviderStore:
+    def get_for_runtime(self, provider_id: str, workspace_id: str) -> None:
+        _ = (provider_id, workspace_id)
+        return None
+
+
 @pytest.fixture(autouse=True)
-def authenticated_route_runtime(monkeypatch: pytest.MonkeyPatch):
+def authenticated_route_runtime(monkeypatch: pytest.MonkeyPatch) -> Generator[None, None, None]:
     repository = _SnapshotRepository()
     install_authenticated_workspace(app, monkeypatch)
     monkeypatch.setattr(tasks_api, "get_task_run_repository", lambda: repository)
     monkeypatch.setattr(app.state, "dag_scheduler", _ImmediateScheduler(), raising=False)
     monkeypatch.setattr(app.state, "engine_client", SimpleNamespace(), raising=False)
+    monkeypatch.setattr(app.state, "auth_resolver", SimpleNamespace(), raising=False)
     monkeypatch.setattr(
         app.state,
         "event_store",
@@ -105,13 +113,15 @@ def authenticated_route_runtime(monkeypatch: pytest.MonkeyPatch):
         raising=False,
     )
     monkeypatch.setattr(app.state, "running_tasks", {}, raising=False)
-    monkeypatch.setattr(app.state, "provider_store", None, raising=False)
+    monkeypatch.setattr(app.state, "provider_store", _RuntimeProviderStore(), raising=False)
     yield
     remove_authenticated_workspace(app)
 
 
 @pytest.fixture
-def isolated_contract_storage(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+def isolated_contract_storage(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> Generator[Path, None, None]:
     monkeypatch.setenv("STORAGE_ROOT", str(tmp_path))
     monkeypatch.setenv("OCR_MOCK_MODE", "true")
     get_settings.cache_clear()
@@ -132,7 +142,7 @@ async def _create_and_complete(
         "/api/tasks",
         files={"file": (name, payload, mime)},
     )
-    task_id = resp.json()["task_id"]
+    task_id = cast(str, resp.json()["task_id"])
     deadline = time.monotonic() + 5.0
     while time.monotonic() < deadline:
         r = await client.get(f"/api/tasks/{task_id}")

@@ -255,6 +255,8 @@ def test_allows_curated_public_knowledge_and_agent_aids(tmp_path: Path) -> None:
     pages = {
         "wiki/index.md": "# Wiki\n",
         "wiki/architecture/overview.md": "# Overview\n",
+        "wiki/migrations/_index.md": "# Migrations\n",
+        "wiki/migrations/example/README.md": "# Example\n",
         "memory/pitfalls.md": "# Pitfalls\n",
         "memory/session-bridge.md": "# Session Bridge\n",
         ".claude/settings.json": "{}\n",
@@ -280,6 +282,9 @@ def test_rejects_unapproved_public_knowledge_and_agent_paths(tmp_path: Path) -> 
     screenshot = repo / "wiki/screenshots/overview.png"
     screenshot.parent.mkdir(parents=True)
     screenshot.write_bytes(b"not-an-approved-image")
+    private_migration = repo / "wiki/migrations/example/private.json"
+    private_migration.parent.mkdir(parents=True)
+    private_migration.write_text("{}\n", encoding="utf-8")
 
     result = _run_tree(repo)
 
@@ -289,6 +294,10 @@ def test_rejects_unapproved_public_knowledge_and_agent_paths(tmp_path: Path) -> 
     )
     assert (
         "path is outside the public wiki allowlist: wiki/screenshots/overview.png" in result.stderr
+    )
+    assert (
+        "path is outside the public wiki allowlist: wiki/migrations/example/private.json"
+        in result.stderr
     )
 
 

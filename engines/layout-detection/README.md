@@ -70,12 +70,15 @@ does not contain model weights.
 
 ```json
 {
-    "input_type": "base64",
-    "base64_data": "<base64-encoded-image>",
+    "inputs": {
+        "image": {
+            "text": "<base64-encoded-image>",
+            "binary": [],
+            "structured": null,
+            "metadata": {}
+        }
+    },
     "config": {
-        "model": "ppstructure_v2",
-        "model_file": "picodet_lcnet_x1_0",
-        "language": "ch",
         "selected_types": ["Text", "Title", "Table"]
     }
 }
@@ -83,10 +86,16 @@ does not contain model weights.
 
 ## Response Format
 
+Layout Detection returns bbox metadata only. It neither copies the source image
+nor crops detected regions. A downstream Adaptor can bind the source image from
+an ancestor node and bind the regions from this node's `structured.elements`.
+
 ```json
 {
-    "status": "success",
-    "output": {
+    "text": null,
+    "binary": [],
+    "structured": {
+        "kind": "layout_regions",
         "elements": [
             {
                 "id": "layout_0",
@@ -96,11 +105,14 @@ does not contain model weights.
             }
         ],
         "total_regions": 1,
+        "page_dimensions": {"width": 1200, "height": 1600}
+    },
+    "metadata": {
+        "processing_time_ms": 1234,
         "model": "ppstructure_v2",
         "model_file": "picodet_lcnet_x1_0",
         "language": "ch"
-    },
-    "processing_time_ms": 1234
+    }
 }
 ```
 

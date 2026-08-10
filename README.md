@@ -117,6 +117,24 @@ Version 0.2.13 is distributed as source code only. The project does not publish 
 | `standard` | Core + backend + frontend + PostgreSQL | Single-process application execution |
 | `full` | Standard + Redis + Celery worker | Durable queue execution |
 
+The standard and full profiles include the hardened Adaptor sandbox runtime
+boundary for `processor/adaptor` execution: backend and Celery worker send
+Adaptor requests only to the canonical internal broker URL
+`http://adaptor-sandbox-broker:8080` on the app network, while a separate
+runner with `network_mode: none` communicates only over the named
+Docker-managed UDS volume at `/run/adaptor-sandbox`. Phase 04 established and
+verified that boundary, and Phase 05 wires backend and worker to the broker
+without granting them any direct runner access. The runner uses container
+hardening and per-request child processes for containment in depth, but it is
+not presented as VM-grade isolation.
+
+Adaptor execution admission is strict single-flight:
+one in-flight adaptor request is allowed, and a second concurrent request is
+rejected immediately with a safe `queue_full`/503 response rather than queued.
+Cancellation is cooperative: queue and serial paths stop scheduling new DAG
+nodes after cancellation is observed, but they do not forcibly interrupt an
+Adaptor call that is already in flight.
+
 To start the full profile, first set `ORCHESTRATOR_MODE=queue` and `ENABLE_QUEUE_MODE=true` in `.env`, then run:
 
 ```bash

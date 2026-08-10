@@ -43,6 +43,7 @@ class Settings(BaseSettings):
     layout_detection_engine_url: str = "http://localhost:8006"
     image_enhancement_engine_url: str = "http://localhost:8008"
     image_rotation_engine_url: str = "http://localhost:8009"
+    adaptor_sandbox_broker_url: str = "http://adaptor-sandbox-broker:8080"
 
     cors_origins: str = Field(
         default="http://localhost:5173",

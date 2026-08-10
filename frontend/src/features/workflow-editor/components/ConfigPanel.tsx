@@ -11,6 +11,7 @@ import { useWorkflowStore } from "@/features/workflow-editor/store";
 export default function ConfigPanel() {
   const { t } = useTranslation(["workflows", "common"]);
   const nodes = useWorkflowStore((state) => state.nodes);
+  const nodeRegistry = useWorkflowStore((state) => state.nodeRegistry);
   const selectedNodeId = useWorkflowStore((state) => state.selectedNodeId);
   const nodeConfigs = useWorkflowStore((state) => state.nodeConfigs);
   const uploadedFiles = useWorkflowStore((state) => state.uploadedFiles);
@@ -24,6 +25,10 @@ export default function ConfigPanel() {
   const selectedNode = useMemo(
     () => nodes.find((node) => node.id === selectedNodeId) ?? null,
     [nodes, selectedNodeId]
+  );
+  const registeredNode = useMemo(
+    () => nodeRegistry.nodes.find((node) => node.node_type === selectedNode?.type) ?? null,
+    [nodeRegistry.nodes, selectedNode?.type]
   );
 
   useEffect(() => {
@@ -62,7 +67,7 @@ export default function ConfigPanel() {
     <div className="config-panel-content" data-testid="config-panel-content">
       <div className="config-panel-node-header">
         <div className="config-panel-node-info">
-          <Typography.Text strong>{selectedNode.data.label}</Typography.Text>
+          <Typography.Text strong>{registeredNode?.display_name ?? selectedNode.data.label}</Typography.Text>
           <Typography.Text type="secondary" className="config-panel-node-type">
             {selectedNode.type}
           </Typography.Text>
@@ -95,6 +100,7 @@ export default function ConfigPanel() {
       ) : (
         <DynamicForm
           nodeId={selectedNode.id}
+          nodeType={selectedNode.type}
           onChange={(nextConfig) => updateNodeConfig(selectedNode.id, nextConfig)}
           onFileChange={(fieldName, file) => {
             if (file) {
@@ -106,7 +112,7 @@ export default function ConfigPanel() {
             removeUploadedFile(selectedNode.id);
             updateNodeConfig(selectedNode.id, { [fieldName]: undefined });
           }}
-          schema={selectedNode.data.configSchema}
+          schema={registeredNode?.config_schema ?? selectedNode.data.configSchema}
           value={{
             ...nodeConfig,
             ...(uploadedFiles[selectedNode.id] ? { file: uploadedFiles[selectedNode.id] } : {})
@@ -114,7 +120,7 @@ export default function ConfigPanel() {
         />
       )}
 
-      {selectedNode.type === "engine/model" && (
+      {dynamicWarnings.some((warning) => warning.node_id === selectedNode.id) && (
         <DynamicWarningBadge
           warnings={dynamicWarnings}
           nodeId={selectedNode.id}

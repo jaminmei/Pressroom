@@ -119,10 +119,90 @@ function buildRegistryNodes(): NodeRegistryNode[] {
       display_name: "End",
       category: "end",
       config_schema: { type: "object", properties: {} },
-      input_types: ["text/*", "application/yaml"],
+      input_types: [
+        "text/raw",
+        "text/plain",
+        "text/markdown",
+        "image/*",
+        "application/x-iteration-output"
+      ],
+      input_ports: [{
+        name: "input",
+        accepted_types: [
+          "text/raw",
+          "text/plain",
+          "text/markdown",
+          "image/*",
+          "application/x-iteration-output"
+        ],
+        required: true,
+        max_connections: -1
+      }],
       output_types: [],
       max_inputs: -1,
       max_outputs: 0
+    },
+    {
+      node_type: "processor/adaptor",
+      display_name: "Adaptor",
+      category: "processor",
+      config_schema: {
+        type: "object",
+        properties: {
+          code: { type: "string" },
+          input_mode: { type: "string", enum: ["all_upstream", "custom_bindings"] },
+          input_bindings: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                name: { type: "string", minLength: 1 },
+                selector: {
+                  type: "array",
+                  items: { type: "string" },
+                  minItems: 2
+                }
+              },
+              required: ["name", "selector"]
+            }
+          }
+        },
+        required: ["code"]
+      },
+      input_ports: [{ name: "input", accepted_types: ["*/*"], required: true, max_connections: -1 }],
+      output_types: ["application/x-adaptor-output"],
+      max_inputs: -1,
+      max_outputs: -1
+    },
+    {
+      node_type: "processor/iteration",
+      display_name: "Iteration",
+      category: "processor",
+      config_schema: {
+        type: "object",
+        properties: {
+          engine_node_type: { type: "string" },
+          engine_config: { type: "object", properties: {} },
+          iterate_over: { type: "string" },
+          item_input_port: { type: "string" },
+          mode: { type: "string" },
+          max_concurrency: { type: "integer", minimum: 1, maximum: 10 },
+          error_handling: { type: "string" }
+        },
+        required: [
+          "engine_node_type",
+          "engine_config",
+          "iterate_over",
+          "item_input_port",
+          "mode",
+          "max_concurrency",
+          "error_handling"
+        ]
+      },
+      input_ports: [{ name: "input", accepted_types: ["*/*"], required: true, max_connections: 1 }],
+      output_types: ["application/x-iteration-output"],
+      max_inputs: 1,
+      max_outputs: -1
     }
   ];
 }
@@ -387,6 +467,123 @@ describe("validateWorkflowDefinition", () => {
     expect(result.blockingErrors.some((error) => error.code === "END_NODE_NOT_TERMINAL")).toBe(
       true
     );
+  });
+
+  it("does not require provider_id for adaptor and iteration nodes", () => {
+    const result = validateWorkflowDefinition({
+      nodes: [
+        {
+          id: "input_1",
+          type: "input/text",
+          data: { label: "Text", config: {}, configSchema: requiredFileSchema }
+        },
+        {
+          id: "adaptor_1",
+          type: "processor/adaptor",
+          data: {
+            label: "Adaptor",
+            config: {},
+            configSchema: buildRegistryNodes().find((node) => node.node_type === "processor/adaptor")!.config_schema
+          }
+        },
+        {
+          id: "iteration_1",
+          type: "processor/iteration",
+          data: {
+            label: "Iteration",
+            config: {},
+            configSchema: buildRegistryNodes().find((node) => node.node_type === "processor/iteration")!.config_schema
+          }
+        },
+        {
+          id: "end_1",
+          type: "end/final",
+          data: { label: "End", config: {}, configSchema: { type: "object", properties: {} } }
+        }
+      ],
+      edges: [
+        { id: "e1", source: "input_1", target: "adaptor_1" },
+        { id: "e2", source: "adaptor_1", target: "iteration_1" },
+        { id: "e3", source: "iteration_1", target: "end_1" }
+      ],
+      nodeConfigs: {
+        input_1: { file: "$file_0" },
+        adaptor_1: { code: "def main(inputs): return {'text': 'ok'}" },
+        iteration_1: {
+          engine_node_type: "engine/ocr",
+          engine_config: {},
+          iterate_over: "binary",
+          item_input_port: "images",
+          mode: "sequential",
+          max_concurrency: 1,
+          error_handling: "terminate"
+        },
+        end_1: {}
+      },
+      uploadedFiles: { input_1: new File(["text"], "doc.txt", { type: "text/plain" }) },
+      registryNodes: buildRegistryNodes()
+    });
+
+    expect(result.blockingErrors.some((error) => error.code === "MISSING_PROVIDER")).toBe(false);
+  });
+
+  it("accepts wildcard adaptor and iteration connections", () => {
+    const result = validateWorkflowDefinition({
+      nodes: [
+        {
+          id: "input_1",
+          type: "input/text",
+          data: { label: "Text", config: {}, configSchema: requiredFileSchema }
+        },
+        {
+          id: "adaptor_1",
+          type: "processor/adaptor",
+          data: {
+            label: "Adaptor",
+            config: {},
+            configSchema: buildRegistryNodes().find((node) => node.node_type === "processor/adaptor")!.config_schema
+          }
+        },
+        {
+          id: "iteration_1",
+          type: "processor/iteration",
+          data: {
+            label: "Iteration",
+            config: {},
+            configSchema: buildRegistryNodes().find((node) => node.node_type === "processor/iteration")!.config_schema
+          }
+        },
+        {
+          id: "end_1",
+          type: "end/final",
+          data: { label: "End", config: {}, configSchema: { type: "object", properties: {} } }
+        }
+      ],
+      edges: [
+        { id: "e1", source: "input_1", target: "adaptor_1" },
+        { id: "e2", source: "adaptor_1", target: "iteration_1" },
+        { id: "e3", source: "iteration_1", target: "end_1" }
+      ],
+      nodeConfigs: {
+        input_1: { file: "$file_0" },
+        adaptor_1: { code: "def main(inputs): return {'binary': b'x'}" },
+        iteration_1: {
+          engine_node_type: "engine/ocr",
+          engine_config: {},
+          iterate_over: "binary",
+          item_input_port: "images",
+          mode: "sequential",
+          max_concurrency: 1,
+          error_handling: "terminate"
+        },
+        end_1: {}
+      },
+      uploadedFiles: { input_1: new File(["text"], "doc.txt", { type: "text/plain" }) },
+      registryNodes: buildRegistryNodes()
+    });
+
+    expect(result.blockingErrors.some((error) => error.code === "TYPE_INCOMPATIBLE")).toBe(false);
+    expect(result.isExecutable).toBe(true);
   });
 
   it("returns warning when end node has no upstream connection", () => {

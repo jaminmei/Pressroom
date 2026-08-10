@@ -279,6 +279,157 @@ class NodeRegistryService:
                     max_outputs=-1,
                 ),
                 NodeDefinition(
+                    node_type="processor/adaptor",
+                    display_name="Code (Adaptor)",
+                    category="processor",
+                    description="Execute custom Python code to transform data between nodes",
+                    config_schema={
+                        "type": "object",
+                        "properties": {
+                            "code": {
+                                "type": "string",
+                                "title": "Processing Code",
+                                "description": (
+                                    "Python code defining main(inputs) -> dict. "
+                                    "Receives upstream NodeOutput dicts, returns a new NodeOutput. "
+                                    "Use image_crop(binary_item, bbox) for bounded PNG cropping; "
+                                    "imports remain disabled."
+                                ),
+                                "default": "",
+                            },
+                            "input_mode": {
+                                "type": "string",
+                                "enum": ["all_upstream", "custom_bindings"],
+                                "default": "all_upstream",
+                                "description": (
+                                    "How inputs are resolved. all_upstream: all visible "
+                                    "ancestor outputs keyed by node ID. custom_bindings: "
+                                    "use input_bindings array."
+                                ),
+                            },
+                            "input_bindings": {
+                                "type": "array",
+                                "title": "Named Input Bindings",
+                                "description": (
+                                    "Optional. When non-empty, the Adaptor resolves inputs "
+                                    "from these named bindings instead of edge-based port "
+                                    "aggregation. Each entry: {name, selector}."
+                                ),
+                                "default": [],
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "name": {"type": "string", "minLength": 1},
+                                        "selector": {
+                                            "type": "array",
+                                            "minItems": 2,
+                                            "items": {"type": "string"},
+                                            "description": (
+                                                "[node_id, output_path_field, ...subpath...]"
+                                            ),
+                                        },
+                                    },
+                                    "required": ["name", "selector"],
+                                },
+                            },
+                        },
+                        "required": ["code"],
+                    },
+                    input_types=["*/*"],
+                    input_ports=[
+                        InputPortDef(
+                            name="input",
+                            accepted_types=["*/*"],
+                            required=True,
+                            max_connections=-1,
+                        ),
+                    ],
+                    output_types=["application/x-adaptor-output"],
+                    max_inputs=-1,
+                    max_outputs=-1,
+                ),
+                NodeDefinition(
+                    node_type="processor/iteration",
+                    display_name="Iteration (Loop)",
+                    category="processor",
+                    description=(
+                        "Iterate over binary or structured array, invoking one ENGINE per item"
+                    ),
+                    config_schema={
+                        "type": "object",
+                        "properties": {
+                            "engine_node_type": {
+                                "type": "string",
+                                "title": "Target Engine",
+                                "description": "ENGINE or processor type to invoke per item",
+                                "enum": [
+                                    "engine/ocr",
+                                    "engine/model",
+                                    "engine/text",
+                                    "engine/markitdown",
+                                    "engine/docling",
+                                    "processor/image_enhance",
+                                    "processor/rotate",
+                                    "processor/adaptor",
+                                ],
+                            },
+                            "engine_config": {
+                                "type": "object",
+                                "description": "Config passed to the ENGINE for each item",
+                                "default": {},
+                            },
+                            "iterate_over": {
+                                "type": "string",
+                                "enum": ["binary", "structured.elements"],
+                                "default": "binary",
+                                "description": "Path to extract the iterable from upstream output",
+                            },
+                            "item_input_port": {
+                                "type": "string",
+                                "default": "image",
+                                "description": "Port name to inject each item into the ENGINE",
+                            },
+                            "mode": {
+                                "type": "string",
+                                "enum": ["sequential", "parallel"],
+                                "default": "sequential",
+                            },
+                            "max_concurrency": {
+                                "type": "integer",
+                                "minimum": 1,
+                                "maximum": 10,
+                                "default": 5,
+                            },
+                            "error_handling": {
+                                "type": "string",
+                                "enum": ["terminate", "continue", "remove_failed"],
+                                "default": "terminate",
+                            },
+                        },
+                        "required": [
+                            "engine_node_type",
+                            "engine_config",
+                            "iterate_over",
+                            "item_input_port",
+                            "mode",
+                            "max_concurrency",
+                            "error_handling",
+                        ],
+                    },
+                    input_types=["*/*"],
+                    input_ports=[
+                        InputPortDef(
+                            name="input",
+                            accepted_types=["*/*"],
+                            required=True,
+                            max_connections=1,
+                        ),
+                    ],
+                    output_types=["application/x-iteration-output"],
+                    max_inputs=1,
+                    max_outputs=-1,
+                ),
+                NodeDefinition(
                     node_type="engine/ocr",
                     display_name="OCR",
                     category="engine",
@@ -322,6 +473,7 @@ class NodeRegistryService:
                         "image/*",
                         "image/cropped_blocks",
                         "application/x-layout-result",
+                        "application/x-adaptor-output",
                     ],
                     input_ports=[
                         InputPortDef(
@@ -330,6 +482,7 @@ class NodeRegistryService:
                                 "image/*",
                                 "image/cropped_blocks",
                                 "application/x-layout-result",
+                                "application/x-adaptor-output",
                             ],
                             required=True,
                             max_connections=-1,
@@ -670,11 +823,25 @@ class NodeRegistryService:
                     category="end",
                     description="Workflow 結果入口與正式終點",
                     config_schema={"type": "object", "properties": {}},
-                    input_types=["text/raw", "text/plain", "text/markdown", "image/*"],
+                    input_types=[
+                        "application/x-adaptor-output",
+                        "text/raw",
+                        "text/plain",
+                        "text/markdown",
+                        "image/*",
+                        "application/x-iteration-output",
+                    ],
                     input_ports=[
                         InputPortDef(
                             name="input",
-                            accepted_types=["text/raw", "text/plain", "text/markdown", "image/*"],
+                            accepted_types=[
+                                "application/x-adaptor-output",
+                                "text/raw",
+                                "text/plain",
+                                "text/markdown",
+                                "image/*",
+                                "application/x-iteration-output",
+                            ],
                             required=True,
                             max_connections=-1,
                         ),

@@ -60,6 +60,7 @@ from app.models.workflow import WorkflowConnection, WorkflowDefinition, Workflow
 from app.providers.store import ProviderStore
 from app.repositories.task_run_repository import TaskRunRepository, TaskRunSnapshot
 from app.services.dag_scheduler import DAGScheduler
+from app.services.durable_workflow_execution import build_composite_executor_runtime
 from app.services.engine_client import EngineClient, make_node_executor
 from app.services.event_store import EventStore
 from app.services.node_registry import NodeRegistryService
@@ -283,7 +284,7 @@ def _start_dag_run(
                     if binding:
                         n.config["file"] = binding.file_path
 
-        executor = make_node_executor(
+        base_executor = make_node_executor(
             engine_client,
             auth_resolver=auth_resolver,
             provider_resolver=(
@@ -294,6 +295,11 @@ def _start_dag_run(
                 )
             ),
         )
+        composite = build_composite_executor_runtime(
+            base_executor=base_executor,
+            workflow=workflow,
+        )
+        executor = composite.executor
         started_at = time.monotonic()
         final_status = "completed"
         error_msg: str | None = None
@@ -393,6 +399,8 @@ def _start_dag_run(
                 run_id,
                 type(exc).__name__,
             )
+
+        await composite.aclose()
 
     bg_task = asyncio.create_task(_execute())
     running_tasks[task_id] = RunningTaskContext(
@@ -526,6 +534,34 @@ def _node_output_from_events(
             status = NodeStatus.SKIPPED.value
 
     return output, status, error or "", node_type
+
+
+def _upstream_output_from_events(
+    run_id: str,
+    node_id: str,
+    event_store: EventStore,
+) -> object | None:
+    """Return the completed output feeding a node's latest execution."""
+    events = event_store.get_events(run_id)
+    source_node_ids: list[str] = []
+
+    for event in reversed(events):
+        if event.node_id == node_id and event.event_type == "started" and event.resolved_inputs:
+            source_node_ids = [
+                resolved.source_node_id for resolved in event.resolved_inputs.values()
+            ]
+            break
+
+    for source_node_id in source_node_ids:
+        for event in reversed(events):
+            if (
+                event.node_id == source_node_id
+                and event.event_type == "completed"
+                and event.output is not None
+            ):
+                return event.output
+
+    return None
 
 
 @router.post("/tasks", response_model=None)
@@ -1765,9 +1801,10 @@ async def get_node_image(
 
     When ``index`` is provided, serve ``binary[index]`` instead of
     ``binary[0]``. Inline base64 ``data`` takes precedence over a temp-file
-    ``ref`` so that multi-image engine outputs (image-enhancement /
-    image-rotation multi-image path, layout-detection crops) are servable
-    even when they carry no file reference.
+    ``ref`` so that multi-image enhancement/rotation outputs are servable
+    even when they carry no file reference. For a bbox-only Layout Detection
+    result, the endpoint resolves the source image from the node's latest
+    upstream execution event.
     """
     from app.models.execution import NodeOutput
     from app.models.inputs import ImageInput
@@ -1788,6 +1825,14 @@ async def get_node_image(
 
     output, _status, _error, _node_type = _node_output_from_events(run_id, node_id, event_store)
 
+    if (
+        _node_type == "processor/layout_detection"
+        and isinstance(output, NodeOutput)
+        and not output.binary
+    ):
+        source_output = _upstream_output_from_events(run_id, node_id, event_store)
+        if source_output is not None:
+            output = source_output
     # Serve input image files (ImageInput from input nodes)
     if isinstance(output, ImageInput):
         image_path = Path(output.data.file_path).resolve()

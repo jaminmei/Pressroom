@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
+
 from app.utils.workflow_hash import compute_dag_hash, compute_workflow_hash
+from tests.helpers.workflow_persistence_samples import complex_workflow_definition_dict
 
 # --- Helpers ---
 
@@ -153,6 +156,99 @@ class TestComputeDagHash:
             edges_with_handles,
             configs,
         )
+
+    def test_dict_key_order_normalized_but_list_order_preserved(self) -> None:
+        base = complex_workflow_definition_dict()
+        nodes = [{"id": node["id"], "type": node["type"]} for node in base["nodes"]]
+        edges = [
+            {
+                "source": edge["source"],
+                "target": edge["target"],
+                "targetHandle": edge.get("target_port"),
+                "sourceHandle": edge.get("source_port"),
+            }
+            for edge in base["connections"]
+        ]
+        configs = {node["id"]: deepcopy(node["config"]) for node in base["nodes"]}
+
+        reordered_dict_configs = deepcopy(configs)
+        reordered_dict_configs["layout_1"] = {"selected_types": ["Text", "Table"]}
+        reordered_dict_configs["adaptor_1"] = {
+            "_binding_source": {"user_authored": True},
+            "unknown_nested": {
+                "selector_like": ["layout_1", "structured", "elements", "1"],
+                "list_order": ["alpha", "beta", "gamma"],
+            },
+            "input_bindings": deepcopy(configs["adaptor_1"]["input_bindings"]),
+            "input_mode": "custom_bindings",
+            "code": configs["adaptor_1"]["code"],
+        }
+
+        binding_order_changed = deepcopy(configs)
+        binding_order_changed["adaptor_1"]["input_bindings"] = list(
+            reversed(binding_order_changed["adaptor_1"]["input_bindings"])
+        )
+
+        selector_order_changed = deepcopy(configs)
+        selector_order_changed["adaptor_1"]["unknown_nested"]["selector_like"] = [
+            "structured",
+            "layout_1",
+            "elements",
+            "1",
+        ]
+
+        assert compute_dag_hash(nodes, edges, configs) == compute_dag_hash(
+            list(reversed(nodes)),
+            list(reversed(edges)),
+            reordered_dict_configs,
+        )
+        assert compute_dag_hash(nodes, edges, configs) != compute_dag_hash(
+            nodes,
+            edges,
+            binding_order_changed,
+        )
+        assert compute_dag_hash(nodes, edges, configs) != compute_dag_hash(
+            nodes,
+            edges,
+            selector_order_changed,
+        )
+
+    def test_hash_excludes_runtime_metadata_and_reflects_nested_adaptor_iteration_changes(
+        self,
+    ) -> None:
+        base = complex_workflow_definition_dict()
+        nodes = [{"id": node["id"], "type": node["type"]} for node in base["nodes"]]
+        edges = [
+            {
+                "source": edge["source"],
+                "target": edge["target"],
+                "targetHandle": edge.get("target_port"),
+                "sourceHandle": edge.get("source_port"),
+            }
+            for edge in base["connections"]
+        ]
+        configs = {node["id"]: deepcopy(node["config"]) for node in base["nodes"]}
+
+        runtime_only_changed = deepcopy(configs)
+        runtime_only_changed["input_1"]["runtime_output"] = {
+            "_binding_source": {"node_id": "input_1"}
+        }
+        runtime_only_changed["end_1"]["metadata"] = {"version": 7, "timestamps": [1, 2, 3]}
+
+        adaptor_changed = deepcopy(configs)
+        adaptor_changed["adaptor_1"]["code"] = "def main(inputs):\n    return {'text': 'changed'}"
+
+        iteration_changed = deepcopy(configs)
+        iteration_changed["iter_1"]["engine_config"]["unknown_nested"]["ordered"] = [9, 8, 7]
+
+        explicit_default_like = deepcopy(configs)
+        explicit_default_like["iter_1"]["engine_config"]["extra_default"] = False
+
+        base_hash = compute_dag_hash(nodes, edges, configs)
+        assert base_hash == compute_dag_hash(nodes, edges, runtime_only_changed)
+        assert base_hash != compute_dag_hash(nodes, edges, adaptor_changed)
+        assert base_hash != compute_dag_hash(nodes, edges, iteration_changed)
+        assert base_hash != compute_dag_hash(nodes, edges, explicit_default_like)
 
     def test_empty_graph(self) -> None:
         """Empty graph produces a stable hash."""

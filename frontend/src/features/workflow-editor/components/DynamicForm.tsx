@@ -1,16 +1,19 @@
-import { Button, Checkbox, Form, Input, InputNumber, Select, Space, Switch, Typography } from "antd";
-import { CodeOutlined } from "@ant-design/icons";
+import { Alert, Button, Checkbox, Form, Input, InputNumber, Select, Space, Switch, Typography } from "antd";
+import { CodeOutlined, ExperimentOutlined } from "@ant-design/icons";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 
+import AdaptorTestWorkbench from "@/features/workflow-editor/components/AdaptorTestWorkbench";
 import FileUploadField from "@/features/workflow-editor/components/FileUploadField";
+import VariablePicker from "@/features/workflow-editor/components/VariablePicker";
 import { useWorkflowStore } from "@/features/workflow-editor/store";
+import type { InputBinding } from "@/features/workflow-editor/types/inputBindings";
 import SchemaEditorModal from "@/features/workflow-editor/components/SchemaEditorModal";
 import { buildDefaultValues } from "@/features/workflow-editor/utils/configDefaults";
 import { apiClient } from "@/services/api";
 import type {
   CascadeMetadata,
   NodeConfigSchema,
-  NodeConfigSchemaArray,
   NodeConfigSchemaProperty,
   NodeConfigSchemaString
 } from "@/types/node-registry";
@@ -19,6 +22,7 @@ const { Text } = Typography;
 
 export interface DynamicFormProps {
   nodeId: string;
+  nodeType?: string;
   schema: NodeConfigSchema;
   value: Record<string, unknown>;
   onChange: (nextValue: Record<string, unknown>) => void;
@@ -106,9 +110,11 @@ function filterEnumByCascade(
   const { depends_on, filter_by, mapping } = cascadeMeta;
 
   // For array types, enum_metadata is in items
-  const enumMetadata = "items" in definition && definition.items?.enum_metadata
-    ? definition.items.enum_metadata
-    : "enum_metadata" in definition && definition.enum_metadata;
+  const stringArrayItems = definition.type === "array" && definition.items?.type === "string"
+    ? definition.items
+    : undefined;
+  const enumMetadata = stringArrayItems?.enum_metadata
+    ?? (definition.type === "string" ? definition.enum_metadata : undefined);
 
   // Single dependency (e.g., model_file depends on model)
   if (typeof depends_on === "string") {
@@ -195,7 +201,8 @@ function renderSchemaField(
   formValues: Record<string, unknown>,
   onOpenSchemaEditor?: (fieldName: string, currentValue?: string) => void,
   form?: ReturnType<typeof Form.useForm<Record<string, unknown>>>[0],
-  onChange?: (nextValue: Record<string, unknown>) => void
+  onChange?: (nextValue: Record<string, unknown>) => void,
+  isAdaptorNode = false
 ) {
   const fieldLabel = definition.title ?? definition.description ?? toFieldLabel(fieldName);
 
@@ -315,8 +322,18 @@ function renderSchemaField(
       <div data-testid={`dynamic-field-${fieldName}`} key={fieldName}>
         <Form.Item label={fieldLabel} name={fieldName} required={required}>
           <Input.TextArea
-            rows={fieldName === "prompt" ? 4 : 1}
+            className={fieldName === "code" && isAdaptorNode ? "adaptor-processing-code" : undefined}
+            data-testid={fieldName === "code" && isAdaptorNode ? "adaptor-processing-code" : undefined}
             placeholder={definition.description}
+            rows={fieldName === "code" && isAdaptorNode ? 14 : fieldName === "prompt" ? 4 : 1}
+            style={fieldName === "code" && isAdaptorNode ? {
+              background: "#111827",
+              borderColor: "#374151",
+              color: "#e5e7eb",
+              fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
+              fontSize: 13,
+              lineHeight: 1.6,
+            } : undefined}
           />
         </Form.Item>
       </div>
@@ -379,20 +396,43 @@ function renderSchemaField(
   }
 
   if (definition.type === "array") {
+    const stringItems = definition.items?.type === "string" ? definition.items : undefined;
+    const objectItems = definition.items?.type === "object" ? definition.items : undefined;
+
+    if (objectItems) {
+      return (
+        <div data-testid={`dynamic-field-${fieldName}`} key={fieldName}>
+          <Form.Item
+            label={fieldLabel}
+            required={required}
+            extra={definition.description}
+          >
+            <Input.TextArea
+              value="This field is configured in the dedicated Adaptor editor in a later migration phase."
+              disabled
+              rows={2}
+              aria-label={`${fieldLabel} deferred editor notice`}
+            />
+          </Form.Item>
+        </div>
+      );
+    }
+
     // Apply cascade filtering
-    const allEnums = definition.items?.enum ?? [];
+    const allEnums = stringItems?.enum ?? [];
     const filteredEnums = filterEnumByCascade(
-      definition as NodeConfigSchemaArray,
+      definition,
       formValues,
       allEnums
     );
 
-    const hasItemMetadata = definition.items?.enum_metadata && Object.keys(definition.items.enum_metadata).length > 0;
+    const itemEnumMetadata = stringItems?.enum_metadata;
+    const hasItemMetadata = itemEnumMetadata != null && Object.keys(itemEnumMetadata).length > 0;
 
     const checkboxOptions = filteredEnums.map((option: string) => ({
       value: option,
-      label: hasItemMetadata && definition.items?.enum_metadata?.[option]
-        ? (definition.items.enum_metadata[option] as { display_name?: string })?.display_name ?? option
+      label: hasItemMetadata && itemEnumMetadata?.[option]
+        ? itemEnumMetadata[option]?.display_name ?? option
         : option
     }));
 
@@ -416,11 +456,14 @@ function renderSchemaField(
 }
 
 export default function DynamicForm({
+  nodeId,
+  nodeType,
   schema,
   value,
   onChange,
   onFileChange
 }: DynamicFormProps) {
+  const { t } = useTranslation("workflows");
   const [form] = Form.useForm<Record<string, unknown>>();
   type FormFieldValues = Parameters<typeof form.setFieldsValue>[0];
   const defaultValues = useMemo(() => buildDefaultValues(schema), [schema]);
@@ -472,6 +515,7 @@ export default function DynamicForm({
   // Schema Editor Modal state
   const [schemaModalOpen, setSchemaModalOpen] = useState(false);
   const [editingSchemaField, setEditingSchemaField] = useState<string | null>(null);
+  const [workbenchOpen, setWorkbenchOpen] = useState(false);
 
   // Handle opening schema editor
   const handleOpenSchemaEditor = (fieldName: string) => {
@@ -505,13 +549,36 @@ export default function DynamicForm({
   const currentOutputType = mergedValue.output_type as string | undefined;
 
   // Filter visible properties based on current model group, output_type, and cascade dependencies
+  const resolvedNodeType = useMemo(() => {
+    if (nodeType) {
+      return nodeType;
+    }
+    return useWorkflowStore.getState().nodes.find((node) => node.id === nodeId)?.type;
+  }, [nodeId, nodeType]);
+  const isAdaptorNode = resolvedNodeType === "processor/adaptor";
+  const edges = useWorkflowStore((state) => state.edges);
+  const inputMode = (mergedValue.input_mode as string | undefined)
+    ?? (Array.isArray(mergedValue.input_bindings) && mergedValue.input_bindings.length > 0 ? "custom_bindings" : "all_upstream");
+  const inputBindings = useMemo(() => {
+    const candidate = mergedValue.input_bindings;
+    return Array.isArray(candidate) ? candidate as InputBinding[] : [];
+  }, [mergedValue.input_bindings]);
+  const showBindings = isAdaptorNode && inputMode === "custom_bindings";
+  const hasDirectInputEdges = useMemo(
+    () => edges.some((edge) => edge.target === nodeId && (edge.targetHandle == null || edge.targetHandle === "input")),
+    [edges, nodeId]
+  );
+
   const visibleProperties = useMemo(() => {
     return Object.entries(schema.properties).filter(([fieldName, definition]) => {
+      if (isAdaptorNode && (fieldName === "input_mode" || fieldName === "input_bindings")) {
+        return false;
+      }
       const cascadeVisible = shouldShowCascadeField(definition, mergedValue);
       const isVisible = isPropertyVisible(fieldName, definition, currentModelGroup, currentOutputType) && cascadeVisible;
       return isVisible;
     });
-  }, [schema.properties, currentModelGroup, currentOutputType, mergedValue]);
+  }, [schema.properties, currentModelGroup, currentOutputType, mergedValue, isAdaptorNode]);
 
   // Get model group info for display
   const currentModelGroupInfo = useMemo(() => {
@@ -525,6 +592,17 @@ export default function DynamicForm({
 
   // Handle model change - reset parameters that don't apply to new model
   const handleValuesChange = (changedValues: Partial<Record<string, unknown>>, allValues: Record<string, unknown>) => {
+    if (changedValues.input_mode !== undefined && isAdaptorNode) {
+      const nextInputMode = changedValues.input_mode as string;
+      const finalValues = {
+        ...allValues,
+        ...(nextInputMode === "all_upstream" ? { input_bindings: [] } : {})
+      };
+      form.setFieldsValue(finalValues as FormFieldValues);
+      onChange(finalValues);
+      return;
+    }
+
     // If output_type changed away from "json_schema", clear the output_schema
     if (changedValues.output_type !== undefined) {
       if (changedValues.output_type !== "json_schema") {
@@ -600,6 +678,39 @@ export default function DynamicForm({
       layout="vertical"
       onValuesChange={handleValuesChange}
     >
+      {isAdaptorNode ? (
+        <>
+          <Form.Item label={t("editorText.inputMode")} name="input_mode">
+            <Select
+              options={[
+                { label: t("editorText.inputModeAllUpstream"), value: "all_upstream" },
+                { label: t("editorText.inputModeCustomBindings"), value: "custom_bindings" }
+              ]}
+              value={inputMode}
+            />
+          </Form.Item>
+
+          {showBindings ? (
+            <VariablePicker
+              bindings={inputBindings}
+              nodeId={nodeId}
+              onChange={(nextBindings) => onChange({ ...mergedValue, input_mode: "custom_bindings", input_bindings: nextBindings })}
+            />
+          ) : null}
+
+          {showBindings && inputBindings.length > 0 && hasDirectInputEdges ? (
+            <Alert
+              data-testid="adaptor-binding-edge-warning"
+              description={t("editorText.adaptorBindingsDirectEdgeWarningDescription")}
+              message={t("editorText.adaptorBindingsDirectEdgeWarning")}
+              showIcon
+              style={{ marginBottom: 16 }}
+              type="warning"
+            />
+          ) : null}
+        </>
+      ) : null}
+
       {/* Show current model group info */}
       {currentModelGroupInfo && (
         <div style={{ marginBottom: 16, padding: '8px 12px', background: '#f5f5f5', borderRadius: 6 }}>
@@ -620,9 +731,22 @@ export default function DynamicForm({
           mergedValue,
           handleOpenSchemaEditor,
           form,
-          onChange
+          onChange,
+          isAdaptorNode
         )
       )}
+
+      {isAdaptorNode ? (
+        <>
+          <Button icon={<ExperimentOutlined />} onClick={() => setWorkbenchOpen(true)} style={{ marginTop: 12 }}>
+            Open Test Workbench
+          </Button>
+          <Typography.Text type="secondary" style={{ display: "block", marginTop: 4 }}>
+            Load upstream scope, inspect outputs, test adaptor code, then apply the verified draft.
+          </Typography.Text>
+          <AdaptorTestWorkbench nodeId={nodeId} open={workbenchOpen} onClose={() => setWorkbenchOpen(false)} />
+        </>
+      ) : null}
 
       {/* Schema Editor Modal */}
       <SchemaEditorModal
