@@ -1,28 +1,30 @@
 #!/usr/bin/env python3
-"""Fail a public release when its dedicated LLM review reports a finding.
+"""Prepare a sanitized, human-reviewable LLM release-sensitivity report.
 
-The OCR JSON result can contain source snippets and model reasoning. This gate
-deliberately emits only controlled annotations and summaries so a failed release
-remains actionable without adding sensitive material to CI logs.
+The OCR JSON result can contain source snippets and model reasoning. This helper
+never emits or persists those fields. A valid model result is advisory: findings
+request human review but do not fail the job. Missing or malformed review output
+remains a hard infrastructure failure so a release cannot silently bypass the
+review stage.
 """
 
 from __future__ import annotations
 
 import argparse
+import hashlib
 import html
 import json
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
-BLOCKING_CATEGORY = "security"
-BLOCKING_SEVERITIES = frozenset({"critical", "high"})
+REPORT_SCHEMA_VERSION = "pressroom-release-sensitivity.v1"
 ANNOTATION_TITLE = "Public release sensitivity finding"
 ANNOTATION_MESSAGE = (
-    "Potential release-sensitive information: inspect this line for a literal "
-    "credential, private endpoint or data, internal-only information, or private "
-    "source. Raw model text is withheld."
+    "Human review required: inspect the referenced source location for release-sensitive "
+    "information. Raw model text is withheld."
 )
+KNOWN_SEVERITIES = frozenset({"critical", "high", "medium", "low", "info"})
 
 
 def _display_path(value: object) -> str:
@@ -43,11 +45,13 @@ def _normalize_label(value: object) -> str:
     return value.strip().lower()
 
 
-def _is_blocking(comment: Mapping[str, Any]) -> bool:
-    return (
-        _normalize_label(comment.get("category")) == BLOCKING_CATEGORY
-        and _normalize_label(comment.get("severity")) in BLOCKING_SEVERITIES
-    )
+def _safe_category(value: object) -> str:
+    return "security" if _normalize_label(value) == "security" else "other"
+
+
+def _safe_severity(value: object) -> str:
+    normalized = _normalize_label(value)
+    return normalized if normalized in KNOWN_SEVERITIES else "unknown"
 
 
 def _annotation_path(value: object) -> str | None:
@@ -73,6 +77,18 @@ def _line_number(value: object) -> int | None:
     return value if isinstance(value, int) and not isinstance(value, bool) and value > 0 else None
 
 
+def _sanitize_finding(comment: Mapping[str, Any]) -> dict[str, object]:
+    path = _annotation_path(comment.get("path"))
+    line = _line_number(comment.get("start_line"))
+    return {
+        "path": path,
+        "start_line": line,
+        "category": _safe_category(comment.get("category")),
+        "severity": _safe_severity(comment.get("severity")),
+        "actionable": path is not None and line is not None,
+    }
+
+
 def _escape_workflow_command(value: str, *, property_value: bool = False) -> str:
     escaped = value.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
     if property_value:
@@ -84,26 +100,26 @@ def _summary_path(value: object) -> str:
     return html.escape(_display_path(value), quote=True).replace("|", "&#124;")
 
 
-def _emit_blocking_annotation(comment: Mapping[str, Any]) -> None:
-    path = _annotation_path(comment.get("path"))
-    line = _line_number(comment.get("start_line"))
+def _emit_advisory_annotation(finding: Mapping[str, object]) -> None:
+    path = finding.get("path")
+    line = finding.get("start_line")
     title = _escape_workflow_command(ANNOTATION_TITLE, property_value=True)
     message = _escape_workflow_command(ANNOTATION_MESSAGE)
-    if path is None or line is None:
+    if not isinstance(path, str) or not isinstance(line, int):
         print(
-            f"::error title={title}::Blocking security finding lacks an actionable "
-            "repository path and line. Raw model text is withheld."
+            f"::warning title={title}::A sensitivity finding lacks an actionable "
+            "repository path and line; inspect the sanitized report. Raw model text is withheld."
         )
         return
     annotation_path = _escape_workflow_command(path, property_value=True)
-    print(f"::error file={annotation_path},line={line},title={title}::{message}")
+    print(f"::warning file={annotation_path},line={line},title={title}::{message}")
 
 
 def _write_summary(
     summary_path: Path,
     *,
-    blockers: Sequence[Mapping[str, Any]],
-    ignored_count: int,
+    findings: Sequence[Mapping[str, object]],
+    report_digest: str | None = None,
     result_error: str | None = None,
 ) -> None:
     lines: Sequence[str]
@@ -115,36 +131,75 @@ def _write_summary(
             "No model response content was retained or displayed.\n",
         )
     else:
-        status = "Blocked" if blockers else "Passed"
+        status = "Human review required" if findings else "No findings"
+        actionable_count = sum(bool(finding.get("actionable")) for finding in findings)
         lines_list = [
             "## LLM public-release sensitivity review\n\n",
             f"**Status:** {status}\n\n",
-            f"Blocking security findings: **{len(blockers)}**  \n",
-            f"Ignored out-of-policy findings: **{ignored_count}**\n\n",
+            f"Findings requiring review: **{len(findings)}**  \n",
+            f"Actionable source locations: **{actionable_count}**  \n",
+            f"Unactionable locations: **{len(findings) - actionable_count}**\n\n",
         ]
-        if blockers:
+        if report_digest is not None:
+            lines_list.append(f"Report digest: `{report_digest}`\n\n")
+        if findings:
             lines_list.extend(
                 (
-                    "| File | Line | Category | Severity | Error |\n",
+                    "| File | Line | Category | Severity | Review |\n",
                     "| --- | ---: | --- | --- | --- |\n",
                 )
             )
-            for comment in blockers:
-                category = _normalize_label(comment.get("category")) or "unknown"
-                severity = _normalize_label(comment.get("severity")) or "unknown"
+            for finding in findings:
+                location_status = (
+                    "Inspect source" if finding.get("actionable") else "Inspect report"
+                )
                 lines_list.append(
                     "| "
-                    f"{_summary_path(comment.get('path'))} | "
-                    f"{_display_line(comment.get('start_line'))} | "
-                    f"{category} | "
-                    f"{severity} | "
-                    "Potential release-sensitive information; inspect the referenced "
-                    "source line. |\n"
+                    f"{_summary_path(finding.get('path'))} | "
+                    f"{_display_line(finding.get('start_line'))} | "
+                    f"{finding.get('category', 'other')} | "
+                    f"{finding.get('severity', 'unknown')} | "
+                    f"{location_status} |\n"
                 )
-            lines_list.append("\nRaw model text and source snippets are intentionally withheld.\n")
+            lines_list.append(
+                "\nApproval attests that every finding in this report was reviewed. "
+                "Raw model text and source snippets are intentionally withheld.\n"
+            )
         lines = tuple(lines_list)
     with summary_path.open("a", encoding="utf-8") as summary:
         summary.writelines(lines)
+
+
+def _write_github_output(
+    output_path: Path,
+    *,
+    review_required: bool,
+    finding_count: int,
+    unactionable_count: int,
+    report_digest: str,
+) -> None:
+    with output_path.open("a", encoding="utf-8") as output:
+        output.write(f"review_required={'true' if review_required else 'false'}\n")
+        output.write(f"finding_count={finding_count}\n")
+        output.write(f"unactionable_count={unactionable_count}\n")
+        output.write(f"report_digest={report_digest}\n")
+
+
+def _build_report(
+    findings: Sequence[Mapping[str, object]], *, source_ref: str, source_commit: str
+) -> dict[str, object]:
+    payload: dict[str, object] = {
+        "schema_version": REPORT_SCHEMA_VERSION,
+        "source_ref": source_ref,
+        "source_commit": source_commit,
+        "review_required": bool(findings),
+        "finding_count": len(findings),
+        "unactionable_count": sum(not bool(finding.get("actionable")) for finding in findings),
+        "findings": list(findings),
+    }
+    canonical = json.dumps(payload, ensure_ascii=True, separators=(",", ":"), sort_keys=True)
+    payload["report_digest"] = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    return payload
 
 
 def load_comments(result_path: Path) -> list[Mapping[str, Any]]:
@@ -168,6 +223,10 @@ def main() -> int:
     parser.add_argument("--result", required=True, type=Path)
     parser.add_argument("--github-annotations", action="store_true")
     parser.add_argument("--github-step-summary", type=Path)
+    parser.add_argument("--github-output", type=Path)
+    parser.add_argument("--sanitized-report", type=Path)
+    parser.add_argument("--source-ref", default="")
+    parser.add_argument("--source-commit", default="")
     args = parser.parse_args()
 
     try:
@@ -183,54 +242,59 @@ def main() -> int:
         if args.github_step_summary is not None:
             _write_summary(
                 args.github_step_summary,
-                blockers=(),
-                ignored_count=0,
+                findings=(),
                 result_error=error_message,
             )
         return 2
 
-    blockers = [comment for comment in comments if _is_blocking(comment)]
-    ignored_count = len(comments) - len(blockers)
+    findings = [_sanitize_finding(comment) for comment in comments]
+    report = _build_report(
+        findings,
+        source_ref=args.source_ref,
+        source_commit=args.source_commit,
+    )
+    report_digest = str(report["report_digest"])
+    unactionable_count = int(report["unactionable_count"])
 
-    if ignored_count:
-        print(
-            "LLM public-release sensitivity review ignored "
-            f"{ignored_count} out-of-policy finding(s)"
+    if args.sanitized_report is not None:
+        args.sanitized_report.write_text(
+            json.dumps(report, ensure_ascii=True, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
         )
-        if args.github_annotations:
-            title = _escape_workflow_command(
-                "Ignored out-of-policy LLM findings", property_value=True
-            )
-            print(
-                f"::warning title={title}::Ignored {ignored_count} finding(s) that "
-                "were not explicitly security/high or security/critical."
-            )
+    if args.github_output is not None:
+        _write_github_output(
+            args.github_output,
+            review_required=bool(findings),
+            finding_count=len(findings),
+            unactionable_count=unactionable_count,
+            report_digest=report_digest,
+        )
 
-    for index, comment in enumerate(blockers, start=1):
-        category = _normalize_label(comment.get("category")) or "unknown"
-        severity = _normalize_label(comment.get("severity")) or "unknown"
+    for index, finding in enumerate(findings, start=1):
         print(
             "LLM public-release sensitivity finding "
-            f"{index}: {_display_path(comment.get('path'))}:"
-            f"{_display_line(comment.get('start_line'))} "
-            f"({category}/{severity})"
+            f"{index}: {_display_path(finding.get('path'))}:"
+            f"{_display_line(finding.get('start_line'))} "
+            f"({finding.get('category', 'other')}/{finding.get('severity', 'unknown')})"
         )
         if args.github_annotations:
-            _emit_blocking_annotation(comment)
+            _emit_advisory_annotation(finding)
 
     if args.github_step_summary is not None:
         _write_summary(
             args.github_step_summary,
-            blockers=blockers,
-            ignored_count=ignored_count,
+            findings=findings,
+            report_digest=report_digest,
         )
 
-    if not blockers:
-        print("LLM public-release sensitivity review passed")
-        return 0
-
-    print("LLM public-release sensitivity review blocked the PressRoom sync")
-    return 1
+    if findings:
+        print(
+            "LLM public-release sensitivity review requires human review of "
+            f"{len(findings)} finding(s)"
+        )
+    else:
+        print("LLM public-release sensitivity review produced no findings")
+    return 0
 
 
 if __name__ == "__main__":

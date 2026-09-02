@@ -91,7 +91,7 @@ def test_in_memory_workflow_store_round_trip_preserves_complex_definition_and_ve
     assert restored.name == "Complex v1"
     assert restored.description == "initial"
     assert restored.definition == definition_v1
-    assert restored.latest_version == 2
+    assert restored.latest_version == 3
 
 
 def test_workflow_definition_top_level_extras_follow_current_ignore_behavior() -> None:

@@ -7,6 +7,7 @@ import {
   getRunResults,
   listRuns,
   listDocumentGroundTruthVersions,
+  compareResult,
 } from "@/services/projectApi";
 
 vi.mock("@/services/api", () => ({
@@ -185,6 +186,24 @@ describe("projectApi run result mapping", () => {
     await expect(getLatestDocumentGroundTruth("project-1", "doc-1")).resolves.toBeNull();
     await expect(getLatestDocumentGroundTruth("project-1", "doc-1")).rejects.toThrow(
       "network unavailable",
+    );
+  });
+
+  it("reads comparisons through the canonical read-only endpoint", async () => {
+    vi.mocked(apiClient.get).mockResolvedValue({
+      data: {
+        result_id: "result-1",
+        document_id: "doc-1",
+        comparison_status: "matched",
+        expected: "expected",
+        actual: "expected",
+      },
+    } as never);
+
+    await compareResult("run-1", "result-1");
+
+    expect(apiClient.get).toHaveBeenCalledWith(
+      "/evaluation-runs/run-1/results/result-1/comparison",
     );
   });
 });

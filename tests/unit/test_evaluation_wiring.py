@@ -167,3 +167,36 @@ def test_main_lifespan_cancels_and_drains_evaluation_background_tasks(
     background_tasks = client.app.state.evaluation_background_tasks
     assert len(background_tasks) == 0
     assert cancelled.is_set()
+
+
+def test_main_lifespan_stops_chatbox_pump_before_checkpointing_session(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _configure_lifespan(monkeypatch, tmp_path, "chatbox-shutdown.sqlite3")
+    transitions: list[str] = []
+
+    class FakeBroker:
+        async def stop(self) -> None:
+            transitions.append("stop-start")
+            await asyncio.sleep(0)
+            transitions.append("terminal-idle")
+
+        async def checkpoint_for_shutdown(self) -> None:
+            transitions.append("checkpoint")
+
+    class FakeLauncher:
+        async def shutdown_all(self) -> None:
+            transitions.append("launcher-stop")
+            raise RuntimeError("simulated launcher shutdown failure")
+
+    try:
+        with TestClient(app) as client:
+            client.app.state.chatbox_runtime_brokers = {"session": FakeBroker()}
+            client.app.state.pi_runtime_launcher = FakeLauncher()
+    finally:
+        for attr in ("pi_runtime_launcher", "chatbox_runtime_brokers"):
+            if hasattr(app.state, attr):
+                delattr(app.state, attr)
+
+    assert transitions == ["stop-start", "terminal-idle", "checkpoint", "launcher-stop"]

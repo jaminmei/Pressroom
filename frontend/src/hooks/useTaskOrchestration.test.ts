@@ -5,7 +5,7 @@ import { useResultStore } from "@/features/result/store";
 import { useTaskExecutionStore } from "@/features/task-execution/store";
 import { useWorkflowStore } from "@/features/workflow-editor/store";
 import { useTaskOrchestration } from "@/hooks/useTaskOrchestration";
-import { getTaskResults, submitBlockSelection } from "@/services/taskApi";
+import { getTaskResults } from "@/services/taskApi";
 import { cancelWorkflowTask, createWorkflowTask } from "@/services/workflowApi";
 import type { TaskStatus } from "@/types/task";
 import { useWorkspaceStore } from "@/stores/workspaceStore";
@@ -32,8 +32,7 @@ vi.mock("@/services/workflowApi", () => ({
 
 vi.mock("@/services/taskApi", () => ({
   getTaskResults: vi.fn(),
-  getTaskStatus: vi.fn().mockResolvedValue({ node_status: [] }),
-  submitBlockSelection: vi.fn()
+  getTaskStatus: vi.fn().mockResolvedValue({ node_status: [] })
 }));
 
 describe("useTaskOrchestration", () => {
@@ -371,53 +370,4 @@ describe("useTaskOrchestration", () => {
     expect(cancelWorkflowTask).toHaveBeenCalledWith("task_3");
   });
 
-  it("submits block selection input and clears pending request", async () => {
-    useTaskExecutionStore.setState({
-      currentTaskId: "task_4",
-      taskStatus: "running",
-      blockSelectionRequest: {
-        node_id: "block_selector_1",
-        node_type: "processor/block_selector",
-        input_type: "block_selection",
-        payload: {
-          source_image: {
-            image_id: "img_001",
-            page_number: 1,
-            width: 1280,
-            height: 720,
-            preview_url: "/preview"
-          },
-          blocks: []
-        }
-      }
-    });
-
-    vi.mocked(submitBlockSelection).mockResolvedValue({
-      task_id: "task_4",
-      node_id: "block_selector_1",
-      status: "running"
-    });
-
-    const { result } = renderHook(() => useTaskOrchestration());
-
-    await act(async () => {
-      await result.current.submitNodeInputSelection("block_selector_1", {
-        input_type: "block_selection",
-        payload: {
-          source_image_id: "img_001",
-          selected_blocks: []
-        }
-      });
-    });
-
-    expect(submitBlockSelection).toHaveBeenCalledWith("task_4", "block_selector_1", {
-      input_type: "block_selection",
-      payload: {
-        source_image_id: "img_001",
-        selected_blocks: []
-      }
-    });
-    expect(useTaskExecutionStore.getState().blockSelectionRequest).toBeNull();
-    expect(useTaskExecutionStore.getState().nodeStatuses.block_selector_1).toBe("running");
-  });
 });

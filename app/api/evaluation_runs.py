@@ -185,6 +185,10 @@ RunViewContextDep = Annotated[ResolvedContext, Depends(require_workspace_capabil
 RunCancelContextDep = Annotated[
     ResolvedContext, Depends(require_workspace_capability("run.cancel"))
 ]
+ComparisonRefreshContextDep = Annotated[
+    ResolvedContext,
+    Depends(require_workspace_capability("comparison.refresh")),
+]
 GroundTruthManageContextDep = Annotated[
     ResolvedContext,
     Depends(require_workspace_capability("ground_truth.manage")),
@@ -663,21 +667,19 @@ def _normalize_text(text: str | None) -> str:
     return " ".join(text.split())
 
 
-@router.get(
-    "/evaluation-runs/{run_id}/results/{result_id}/compare",
-    response_model=None,
-)
-async def compare_result(
+async def _build_comparison(
     run_id: str,
     result_id: str,
-    context: RunViewContextDep,
-    evaluation_repository: EvaluationRepositoryDep,
-    ground_truth_repository: GroundTruthRepositoryDep,
+    *,
+    workspace_id: str | None,
+    evaluation_repository: EvaluationRepository,
+    ground_truth_repository: GroundTruthRepository,
+    persist: bool,
 ) -> dict[str, object]:
-    run = await evaluation_repository.get_run(run_id, workspace_id=context.workspace_id)
+    run = await evaluation_repository.get_run(run_id, workspace_id=workspace_id)
     if run is None:
         raise HTTPException(status_code=404, detail=f"Evaluation run not found: {run_id}")
-    result = await evaluation_repository.get_result(result_id, workspace_id=context.workspace_id)
+    result = await evaluation_repository.get_result(result_id, workspace_id=workspace_id)
     if result is None or result.evaluation_run_id != run_id:
         raise HTTPException(status_code=404, detail=f"Evaluation result not found: {result_id}")
 
@@ -695,12 +697,15 @@ async def compare_result(
 
     gt = await ground_truth_repository.get_latest(
         result.document_id,
-        workspace_id=context.workspace_id,
+        workspace_id=workspace_id,
     )
     if gt is None:
-        await evaluation_repository.update_result_comparison_status(
-            result.id, comparison_status="unavailable", workspace_id=context.workspace_id
-        )
+        if persist:
+            await evaluation_repository.update_result_comparison_status(
+                result.id,
+                comparison_status="unavailable",
+                workspace_id=workspace_id,
+            )
         return {
             "result_id": result.id,
             "document_id": result.document_id,
@@ -715,9 +720,12 @@ async def compare_result(
     actual_normalized = _normalize_text(result.output_content)
     comparison_status = "matched" if expected_normalized == actual_normalized else "mismatched"
 
-    await evaluation_repository.update_result_comparison_status(
-        result.id, comparison_status=comparison_status, workspace_id=context.workspace_id
-    )
+    if persist:
+        await evaluation_repository.update_result_comparison_status(
+            result.id,
+            comparison_status=comparison_status,
+            workspace_id=workspace_id,
+        )
 
     return {
         "result_id": result.id,
@@ -728,6 +736,73 @@ async def compare_result(
         "actual_content": result.output_content,
         "diff_fields": [],
     }
+
+
+@router.get(
+    "/evaluation-runs/{run_id}/results/{result_id}/comparison",
+    response_model=None,
+)
+async def get_result_comparison(
+    run_id: str,
+    result_id: str,
+    context: RunViewContextDep,
+    evaluation_repository: EvaluationRepositoryDep,
+    ground_truth_repository: GroundTruthRepositoryDep,
+) -> dict[str, object]:
+    """Calculate and return a comparison without mutating persisted result state."""
+    return await _build_comparison(
+        run_id,
+        result_id,
+        workspace_id=context.workspace_id,
+        evaluation_repository=evaluation_repository,
+        ground_truth_repository=ground_truth_repository,
+        persist=False,
+    )
+
+
+@router.post(
+    "/evaluation-runs/{run_id}/results/{result_id}/comparison",
+    response_model=None,
+)
+async def refresh_result_comparison(
+    run_id: str,
+    result_id: str,
+    context: ComparisonRefreshContextDep,
+    evaluation_repository: EvaluationRepositoryDep,
+    ground_truth_repository: GroundTruthRepositoryDep,
+) -> dict[str, object]:
+    """Recalculate a comparison and persist its derived status."""
+    return await _build_comparison(
+        run_id,
+        result_id,
+        workspace_id=context.workspace_id,
+        evaluation_repository=evaluation_repository,
+        ground_truth_repository=ground_truth_repository,
+        persist=True,
+    )
+
+
+@router.get(
+    "/evaluation-runs/{run_id}/results/{result_id}/compare",
+    response_model=None,
+    deprecated=True,
+)
+async def compare_result_compatibility(
+    run_id: str,
+    result_id: str,
+    context: RunViewContextDep,
+    evaluation_repository: EvaluationRepositoryDep,
+    ground_truth_repository: GroundTruthRepositoryDep,
+) -> dict[str, object]:
+    """Deprecated read-only alias for the canonical comparison GET."""
+    return await _build_comparison(
+        run_id,
+        result_id,
+        workspace_id=context.workspace_id,
+        evaluation_repository=evaluation_repository,
+        ground_truth_repository=ground_truth_repository,
+        persist=False,
+    )
 
 
 @router.post(

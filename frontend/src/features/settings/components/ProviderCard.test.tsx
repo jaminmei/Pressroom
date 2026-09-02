@@ -92,7 +92,7 @@ const defaultProps = {
   onAddModel: vi.fn().mockResolvedValue(undefined),
   onRemoveModel: vi.fn().mockResolvedValue(undefined),
   onToggleModel: vi.fn().mockResolvedValue(undefined),
-  onTestModel: vi.fn().mockResolvedValue({ status: "ok", latency_ms: 100, error: null, model_response: "OK" }),
+  onTestModel: vi.fn().mockResolvedValue({ status: "healthy", latency_ms: 100, error: null, model_response: "OK" }),
   isTesting: false,
   connectionResult: null as TestConnectionResponse | null,
 };

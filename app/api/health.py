@@ -1,12 +1,16 @@
 from __future__ import annotations
 
 import asyncio
+import hmac
 from collections.abc import Mapping
 from datetime import datetime, timezone
 from time import perf_counter
+from typing import Annotated
 
 import httpx
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException, Security
+from fastapi.security import APIKeyHeader
+from pydantic import SecretStr
 from typing_extensions import TypedDict
 
 from app.config import Settings, get_settings
@@ -18,10 +22,29 @@ router = APIRouter()
 HEALTH_CHECK_TIMEOUT_SECONDS = 5
 ENGINE_DEGRADED_LATENCY_MS = 5000
 _APP_STARTED_AT = perf_counter()
+_operator_token_header = APIKeyHeader(
+    name="X-Operator-Token",
+    auto_error=False,
+    scheme_name="OperatorHealthToken",
+)
 
 
-@router.get("/health/worker")
-async def get_worker_health() -> dict[str, object]:
+def require_operator_health(
+    supplied_token: Annotated[str | None, Security(_operator_token_header)],
+) -> None:
+    configured = get_settings().operator_health_token
+    expected = configured.get_secret_value() if isinstance(configured, SecretStr) else configured
+    if not expected or not supplied_token or not hmac.compare_digest(expected, supplied_token):
+        raise HTTPException(status_code=404, detail="Not found")
+
+
+setattr(require_operator_health, "policy_kind", "operator")  # noqa: B010
+
+
+@router.get("/internal/health/worker", include_in_schema=False)
+async def get_worker_health(
+    _: Annotated[None, Security(require_operator_health)],
+) -> dict[str, object]:
     mode = FeatureFlags.get_orchestrator_mode()
     if mode.value != "queue":
         return {"workers": {}, "mode": "serial"}
@@ -68,8 +91,10 @@ async def get_health() -> dict[str, object]:
     }
 
 
-@router.get("/health/detailed")
-async def get_health_detailed() -> dict[str, object]:
+@router.get("/internal/health/detailed", include_in_schema=False)
+async def get_health_detailed(
+    _: Annotated[None, Security(require_operator_health)],
+) -> dict[str, object]:
     settings = get_settings()
 
     if FeatureFlags.is_queue_mode():

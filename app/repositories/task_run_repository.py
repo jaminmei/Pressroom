@@ -15,6 +15,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session as SyncSession
 
 from app.db.session import AsyncSessionLocal
+from app.models.db.file_resource import FileResource
+from app.models.db.task_run_file import TaskRunFile
 from app.repositories._workspace_filter import _require_workspace_filter
 
 SessionFactory = Callable[[], AsyncSession]
@@ -139,6 +141,15 @@ class TaskRunRepository:
             if update_values:
                 await self._update_task_row(session, task_id, update_values)
 
+            if input_files is not None:
+                await self._sync_file_bindings(
+                    session,
+                    task_id=task_id,
+                    workspace_id=workspace_id,
+                    input_files=input_files,
+                    created_at=created_at or updated_at or datetime.now(timezone.utc),
+                )
+
             await session.commit()
 
     async def get_snapshot(
@@ -260,6 +271,39 @@ class TaskRunRepository:
             await session.commit()
             return int(cast(CursorResult[object], result).rowcount or 0)
 
+    async def update_status(
+        self,
+        task_id: str,
+        *,
+        status: str,
+        workspace_id: str | None = None,
+        completed_at: datetime | None = None,
+        error: str | None = None,
+    ) -> bool:
+        """Update lifecycle fields without overwriting persisted workflow/results."""
+        _require_workspace_filter(workspace_id)
+        async with self._session_factory() as session:
+            columns = await self._get_columns(session)
+            if not {"id", "status", "workspace_id"}.issubset(columns):
+                return False
+            values: dict[str, object] = {"status": status}
+            if "updated_at" in columns:
+                values["updated_at"] = datetime.now(timezone.utc)
+            if completed_at is not None and "completed_at" in columns:
+                values["completed_at"] = completed_at
+            if error is not None and "error" in columns:
+                values["error"] = error
+            set_clauses = ", ".join(f"{column} = :{column}" for column in values)
+            result = await session.execute(
+                text(
+                    f"UPDATE task_runs SET {set_clauses} "
+                    "WHERE id = :task_id AND workspace_id = :workspace_id"
+                ),
+                {"task_id": task_id, "workspace_id": workspace_id, **values},
+            )
+            await session.commit()
+            return bool(cast(CursorResult[object], result).rowcount)
+
     async def _get_columns(self, session: AsyncSession) -> set[str]:
         if "task_runs" in _column_cache:
             return _column_cache["task_runs"]
@@ -291,6 +335,51 @@ class TaskRunRepository:
         statement = text(f"UPDATE task_runs SET {set_clauses} WHERE id = :task_id")
         params = {"task_id": task_id, **values}
         await session.execute(statement, params)
+
+    async def _sync_file_bindings(
+        self,
+        session: AsyncSession,
+        *,
+        task_id: str,
+        workspace_id: str | None,
+        input_files: Sequence[Mapping[str, Any]],
+        created_at: datetime,
+    ) -> None:
+        if workspace_id is None:
+            return
+        await session.execute(sa.delete(TaskRunFile).where(TaskRunFile.task_run_id == task_id))
+        candidates = {
+            str(item["file_id"]): (
+                str(item["node_id"]) if isinstance(item.get("node_id"), str) else None
+            )
+            for item in input_files
+            if isinstance(item.get("file_id"), str)
+        }
+        if not candidates:
+            return
+        existing_ids = set(
+            await session.scalars(
+                sa.select(FileResource.id).where(
+                    FileResource.workspace_id == workspace_id,
+                    FileResource.id.in_(candidates),
+                )
+            )
+        )
+        normalized_created_at = created_at
+        if normalized_created_at.tzinfo is not None:
+            normalized_created_at = normalized_created_at.astimezone(timezone.utc).replace(
+                tzinfo=None
+            )
+        session.add_all(
+            TaskRunFile(
+                task_run_id=task_id,
+                file_id=file_id,
+                workspace_id=workspace_id,
+                node_id=candidates[file_id],
+                created_at=normalized_created_at,
+            )
+            for file_id in sorted(existing_ids)
+        )
 
     def _row_to_snapshot(self, row: Mapping[str, Any]) -> TaskRunSnapshot:
         node_summary_raw = row.get("node_summary_json")

@@ -5,15 +5,21 @@ from httpx import ASGITransport, AsyncClient
 
 from app.config import get_settings
 from app.main import app
+from app.storage.local import get_storage
 
-pytestmark = pytest.mark.usefixtures("authenticated_workspace_contract")
+pytestmark = pytest.mark.usefixtures(
+    "authenticated_workspace_contract",
+    "file_resource_database",
+)
 
 
 @pytest.fixture
 def isolated_storage(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.setenv("STORAGE_ROOT", str(tmp_path))
     get_settings.cache_clear()
+    get_storage.cache_clear()
     yield tmp_path
+    get_storage.cache_clear()
     get_settings.cache_clear()
 
 
@@ -40,7 +46,7 @@ async def test_upload_pdf_success(isolated_storage: Path) -> None:
 
     record = get_file_store().get(body["file_id"])
     assert record is not None
-    saved_path = Path(record.storage_path)
+    saved_path = isolated_storage / record.storage_path
     assert saved_path.exists()
     assert saved_path.read_bytes() == payload
 
@@ -213,7 +219,7 @@ async def test_upload_sanitizes_unix_path_traversal_filename(isolated_storage: P
     from app.api.files import get_file_store
 
     record = get_file_store().get(body["file_id"])
-    assert Path(record.storage_path).name == "a.pdf"
+    assert (isolated_storage / record.storage_path).name == "a.pdf"
 
 
 @pytest.mark.anyio
@@ -232,4 +238,4 @@ async def test_upload_sanitizes_windows_path_traversal_filename(isolated_storage
     from app.api.files import get_file_store
 
     record = get_file_store().get(body["file_id"])
-    assert Path(record.storage_path).name == "a.pdf"
+    assert (isolated_storage / record.storage_path).name == "a.pdf"

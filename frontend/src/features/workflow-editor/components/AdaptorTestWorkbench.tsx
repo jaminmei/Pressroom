@@ -11,7 +11,8 @@ import {
   Tag,
   Typography
 } from "antd";
-import { useEffect, useMemo, useState } from "react";
+import { isAxiosError } from "axios";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import VariablePicker from "@/features/workflow-editor/components/VariablePicker";
 import { useWorkflowStore } from "@/features/workflow-editor/store";
@@ -24,6 +25,10 @@ import type { WorkflowNode } from "@/types/workflow";
 
 const { Text, Title } = Typography;
 const { TextArea } = Input;
+const TEST_CASE_POLL_INTERVAL_MS = 2_000;
+const TEST_CASE_POLL_TIMEOUT_MS = 120_000;
+const TEST_CASE_POLL_MAX_TRANSIENT_FAILURES = 3;
+const WORKBENCH_MODAL_WIDTH = 1_200;
 
 type WorkbenchStatus = "empty" | "pending" | "running_upstream" | "ready" | "blocked" | "failed" | "stale";
 type InputMode = "all_upstream" | "custom_bindings";
@@ -71,6 +76,21 @@ interface AdaptorTestWorkbenchProps {
   nodeId: string;
   open: boolean;
   onClose: () => void;
+}
+
+interface PollHandles {
+  controller: AbortController | null;
+  nextTimer: number | null;
+  timeoutTimer: number | null;
+}
+
+function isTransientPollingError(error: unknown): boolean {
+  if (!isAxiosError(error)) return false;
+  if (!error.response) return true;
+  return error.response.status === 408
+    || error.response.status === 425
+    || error.response.status === 429
+    || error.response.status >= 500;
 }
 
 function stringifyBindings(bindings: InputBinding[]): string {
@@ -131,9 +151,19 @@ function getStatusLabel(status: WorkbenchStatus): string {
   }
 }
 
+function isTerminalTestCaseStatus(status: WorkbenchStatus): boolean {
+  return status === "ready" || status === "blocked" || status === "failed" || status === "stale";
+}
+
+function nodeStatusColor(status: string | undefined): string {
+  if (status === "completed") return "green";
+  if (status === "failed") return "red";
+  return "default";
+}
+
 function JsonCollapsible({ data, label, defaultOpen = false }: { data: unknown; label: string; defaultOpen?: boolean }) {
   const [open, setOpen] = useState(defaultOpen);
-  const jsonStr = JSON.stringify(data, null, 2);
+  const jsonStr = JSON.stringify(data, null, 2) ?? "null";
 
   return (
     <div style={{ marginBottom: 8 }}>
@@ -171,6 +201,8 @@ function NodeOutputPreview({ output }: { output: NodeOutput | null }) {
     return <Empty description="No output loaded" image={Empty.PRESENTED_IMAGE_SIMPLE} />;
   }
 
+  const binary = Array.isArray(output.binary) ? output.binary : [];
+
   return (
     <Space direction="vertical" size={8} style={{ width: "100%" }}>
       {output.text ? (
@@ -193,8 +225,8 @@ function NodeOutputPreview({ output }: { output: NodeOutput | null }) {
         </div>
       ) : null}
 
-      <JsonCollapsible data={output.binary} label={`binary (${output.binary.length} items)`} />
-      <JsonCollapsible data={output.structured} label="structured" defaultOpen={output.text == null && output.binary.length === 0} />
+      <JsonCollapsible data={binary} label={`binary (${binary.length} items)`} />
+      <JsonCollapsible data={output.structured} label="structured" defaultOpen={output.text == null && binary.length === 0} />
       <JsonCollapsible data={output.metadata} label="metadata" />
     </Space>
   );
@@ -206,12 +238,19 @@ function ExecutionResultPanel({ execution }: { execution: ExecutionResponse | nu
   }
 
   const succeeded = execution.status === "succeeded";
+  const failed = execution.status === "failed";
+  let statusColor = "blue";
+  if (succeeded) statusColor = "green";
+  else if (failed) statusColor = "red";
+  let statusLabel = execution.status;
+  if (succeeded) statusLabel = "Succeeded";
+  else if (failed) statusLabel = "Failed";
 
   return (
     <Space direction="vertical" size={12} style={{ width: "100%" }}>
       <Space align="center" size={12}>
-        <Badge color={succeeded ? "green" : execution.status === "failed" ? "red" : "blue"} />
-        <Text strong>{succeeded ? "Succeeded" : execution.status === "failed" ? "Failed" : execution.status}</Text>
+        <Badge color={statusColor} />
+        <Text strong>{statusLabel}</Text>
         {execution.duration_ms != null ? <Text type="secondary">{execution.duration_ms} ms</Text> : null}
       </Space>
 
@@ -252,6 +291,43 @@ function ExecutionResultPanel({ execution }: { execution: ExecutionResponse | nu
   );
 }
 
+function OutputInspector({
+  error,
+  loading,
+  output,
+  selectedNodeId,
+  testCase,
+}: {
+  error: string | null;
+  loading: boolean;
+  output: NodeOutput | null;
+  selectedNodeId: string | null;
+  testCase: TestCaseResponse | null;
+}) {
+  if (loading) {
+    return (
+      <div style={{ display: "flex", justifyContent: "center", padding: 24 }}>
+        <Spin />
+      </div>
+    );
+  }
+  if (error) return <Alert message={error} showIcon type="error" />;
+  if (selectedNodeId && testCase?.nodes[selectedNodeId]?.status === "failed") {
+    return (
+      <Alert
+        description={testCase.nodes[selectedNodeId].error?.message ?? "Unknown error"}
+        message="Node execution failed"
+        showIcon
+        type="error"
+      />
+    );
+  }
+  if (selectedNodeId && testCase?.nodes[selectedNodeId]?.status !== "completed") {
+    return <Alert message="Selected node has no completed output yet." showIcon type="info" />;
+  }
+  return <NodeOutputPreview output={output} />;
+}
+
 export default function AdaptorTestWorkbench({ nodeId, open, onClose }: AdaptorTestWorkbenchProps) {
   const nodes = useWorkflowStore((state) => state.nodes);
   const edges = useWorkflowStore((state) => state.edges);
@@ -283,6 +359,79 @@ export default function AdaptorTestWorkbench({ nodeId, open, onClose }: AdaptorT
   );
   const [execution, setExecution] = useState<ExecutionResponse | null>(null);
   const [verifiedDraftSignature, setVerifiedDraftSignature] = useState<string | null>(null);
+  const pollHandlesRef = useRef<PollHandles>({ controller: null, nextTimer: null, timeoutTimer: null });
+  const pollingGenerationRef = useRef(0);
+
+  const stopTestCasePolling = useCallback((updateLoading = true) => {
+    pollingGenerationRef.current += 1;
+    const handles = pollHandlesRef.current;
+    handles.controller?.abort();
+    if (handles.nextTimer !== null) window.clearTimeout(handles.nextTimer);
+    if (handles.timeoutTimer !== null) window.clearTimeout(handles.timeoutTimer);
+    pollHandlesRef.current = { controller: null, nextTimer: null, timeoutTimer: null };
+    if (updateLoading) setLoadingTestCase(false);
+  }, []);
+
+  const startTestCasePolling = useCallback((testCaseId: string, pollImmediately = false) => {
+    stopTestCasePolling(false);
+    const generation = pollingGenerationRef.current;
+    let transientFailureCount = 0;
+
+    async function pollOnce() {
+      const controller = new AbortController();
+      pollHandlesRef.current.controller = controller;
+      try {
+        const response = await apiClient.get<TestCaseResponse>(`/adaptor-test-cases/${testCaseId}`, {
+          signal: controller.signal,
+        });
+        if (generation !== pollingGenerationRef.current) return;
+        transientFailureCount = 0;
+        setTestCase(response.data);
+        setWorkbenchStatus(response.data.status);
+        if (isTerminalTestCaseStatus(response.data.status)) {
+          stopTestCasePolling();
+          return;
+        }
+        scheduleNext();
+      } catch (error) {
+        if (generation !== pollingGenerationRef.current || controller.signal.aborted) return;
+        if (isTransientPollingError(error)
+          && transientFailureCount < TEST_CASE_POLL_MAX_TRANSIENT_FAILURES) {
+          transientFailureCount += 1;
+          scheduleNext();
+          return;
+        }
+        setHeaderError(error instanceof Error ? error.message : "Failed to refresh test case");
+        stopTestCasePolling();
+      } finally {
+        if (pollHandlesRef.current.controller === controller) {
+          pollHandlesRef.current.controller = null;
+        }
+      }
+    }
+    function scheduleNext() {
+      if (generation !== pollingGenerationRef.current) return;
+      pollHandlesRef.current.nextTimer = window.setTimeout(
+        () => void pollOnce(),
+        TEST_CASE_POLL_INTERVAL_MS,
+      );
+    }
+
+    pollHandlesRef.current.timeoutTimer = window.setTimeout(() => {
+      if (generation !== pollingGenerationRef.current) return;
+      setHeaderError("Timed out while waiting for the test case.");
+      stopTestCasePolling();
+    }, TEST_CASE_POLL_TIMEOUT_MS);
+    if (pollImmediately) void pollOnce();
+    else scheduleNext();
+  }, [stopTestCasePolling]);
+
+  useEffect(() => {
+    if (!open) stopTestCasePolling();
+    // A node switch must invalidate the previous node's in-flight poll before
+    // the node-scoped state reset below runs.
+    return () => stopTestCasePolling(false);
+  }, [nodeId, open, stopTestCasePolling]);
 
   useEffect(() => {
     if (!open) {
@@ -321,6 +470,10 @@ export default function AdaptorTestWorkbench({ nodeId, open, onClose }: AdaptorT
   );
 
   const isDraftVerified = execution?.status === "succeeded" && verifiedDraftSignature === currentDraftSignature;
+  const selectedTestCaseId = testCase?.test_case_id;
+  const selectedScopeNodeStatus = selectedScopeNodeId
+    ? testCase?.nodes[selectedScopeNodeId]?.status
+    : undefined;
 
   useEffect(() => {
     if (!testCase) {
@@ -342,12 +495,11 @@ export default function AdaptorTestWorkbench({ nodeId, open, onClose }: AdaptorT
   }, [testCase, uploadedFiles]);
 
   useEffect(() => {
-    if (!selectedScopeNodeId || !testCase) {
+    if (!selectedScopeNodeId || !selectedTestCaseId) {
       return;
     }
 
-    const selectedScopeNode = testCase.nodes[selectedScopeNodeId];
-    if (!selectedScopeNode || selectedScopeNode.status !== "completed") {
+    if (selectedScopeNodeStatus !== "completed") {
       setSelectedNodeOutput(null);
       return;
     }
@@ -358,7 +510,7 @@ export default function AdaptorTestWorkbench({ nodeId, open, onClose }: AdaptorT
       setInspectorError(null);
       try {
         const response = await apiClient.get<{ node_id: string; output: NodeOutput }>(
-          `/adaptor-test-cases/${testCase.test_case_id}/nodes/${selectedScopeNodeId}/result`
+          `/adaptor-test-cases/${selectedTestCaseId}/nodes/${selectedScopeNodeId}/result`
         );
         if (!disposed) {
           setSelectedNodeOutput(response.data.output);
@@ -380,9 +532,11 @@ export default function AdaptorTestWorkbench({ nodeId, open, onClose }: AdaptorT
     return () => {
       disposed = true;
     };
-  }, [selectedScopeNodeId, testCase]);
+  }, [selectedScopeNodeId, selectedScopeNodeStatus, selectedTestCaseId]);
 
   const createTestCase = async () => {
+    stopTestCasePolling(false);
+    const generation = pollingGenerationRef.current;
     const payload = buildWorkflowExecutionPayload({
       nodes,
       edges,
@@ -407,34 +561,19 @@ export default function AdaptorTestWorkbench({ nodeId, open, onClose }: AdaptorT
           "Content-Type": "multipart/form-data"
         }
       });
+      if (generation !== pollingGenerationRef.current) return;
       setTestCase(response.data);
       setWorkbenchStatus(response.data.status);
       const firstScopeNode = Object.keys(response.data.nodes)[0] ?? null;
       setSelectedScopeNodeId(firstScopeNode);
 
       if (response.data.status === "pending" || response.data.status === "running_upstream") {
-        const tcId = response.data.test_case_id;
-        const pollInterval = setInterval(async () => {
-          try {
-            const pollResp = await apiClient.get<TestCaseResponse>(`/adaptor-test-cases/${tcId}`);
-            setTestCase(pollResp.data);
-            setWorkbenchStatus(pollResp.data.status);
-
-            if (pollResp.data.status === "ready" || pollResp.data.status === "blocked" || pollResp.data.status === "failed") {
-              clearInterval(pollInterval);
-              setLoadingTestCase(false);
-            }
-          } catch {
-            clearInterval(pollInterval);
-            setLoadingTestCase(false);
-          }
-        }, 2000);
-
-        setTimeout(() => clearInterval(pollInterval), 120000);
+        startTestCasePolling(response.data.test_case_id);
       } else {
         setLoadingTestCase(false);
       }
     } catch (error) {
+      if (generation !== pollingGenerationRef.current) return;
       setHeaderError(error instanceof Error ? error.message : "Failed to create test case");
       setLoadingTestCase(false);
     }
@@ -448,34 +587,7 @@ export default function AdaptorTestWorkbench({ nodeId, open, onClose }: AdaptorT
 
     setLoadingTestCase(true);
     setHeaderError(null);
-
-    const tcId = testCase.test_case_id;
-    const pollOnce = async () => {
-      try {
-        const response = await apiClient.get<TestCaseResponse>(`/adaptor-test-cases/${tcId}`);
-        setTestCase(response.data);
-        setWorkbenchStatus(response.data.status);
-        return response.data.status;
-      } catch (error) {
-        setHeaderError(error instanceof Error ? error.message : "Failed to refresh test case");
-        return "failed";
-      }
-    };
-
-    const status = await pollOnce();
-
-    if (status === "pending" || status === "running_upstream") {
-      const pollInterval = setInterval(async () => {
-        const s = await pollOnce();
-        if (s === "ready" || s === "blocked" || s === "failed") {
-          clearInterval(pollInterval);
-          setLoadingTestCase(false);
-        }
-      }, 2000);
-      setTimeout(() => { clearInterval(pollInterval); setLoadingTestCase(false); }, 120000);
-    } else {
-      setLoadingTestCase(false);
-    }
+    startTestCasePolling(testCase.test_case_id, true);
   };
 
   const cancelTestCase = async () => {
@@ -483,6 +595,7 @@ export default function AdaptorTestWorkbench({ nodeId, open, onClose }: AdaptorT
       return;
     }
 
+    stopTestCasePolling();
     try {
       await apiClient.delete(`/adaptor-test-cases/${testCase.test_case_id}`);
       setTestCase(null);
@@ -538,22 +651,26 @@ export default function AdaptorTestWorkbench({ nodeId, open, onClose }: AdaptorT
 
   const isApplyEnabled = Boolean(testCase && workbenchStatus === "ready" && isDraftVerified);
   const showUntestedChanges = verifiedDraftSignature != null && verifiedDraftSignature !== currentDraftSignature;
+  const handleClose = () => {
+    stopTestCasePolling();
+    onClose();
+  };
 
   return (
     <Modal
       destroyOnHidden
       footer={(
         <Space>
-          <Button onClick={onClose}>Close</Button>
+          <Button onClick={handleClose}>Close</Button>
           <Button disabled={!isApplyEnabled} onClick={applyDraft} type="primary">
             Apply
           </Button>
         </Space>
       )}
-      onCancel={onClose}
+      onCancel={handleClose}
       open={open}
       title="Adaptor Test Workbench"
-      width={1200}
+      width={WORKBENCH_MODAL_WIDTH}
     >
       <Space direction="vertical" size={16} style={{ width: "100%" }}>
         <div
@@ -627,7 +744,7 @@ export default function AdaptorTestWorkbench({ nodeId, open, onClose }: AdaptorT
                     type={isSelected ? "primary" : "default"}
                   >
                     <span>{node.data.label}</span>
-                    <Tag color={scopeState?.status === "completed" ? "green" : scopeState?.status === "failed" ? "red" : "default"}>
+                    <Tag color={nodeStatusColor(scopeState?.status)}>
                       {scopeState?.status ?? "pending"}
                     </Tag>
                   </Button>
@@ -645,24 +762,13 @@ export default function AdaptorTestWorkbench({ nodeId, open, onClose }: AdaptorT
               }}
             >
               <Title level={5}>Output Inspector</Title>
-              {loadingNodeOutput ? (
-                <div style={{ display: "flex", justifyContent: "center", padding: 24 }}>
-                  <Spin />
-                </div>
-              ) : inspectorError ? (
-                <Alert message={inspectorError} showIcon type="error" />
-              ) : selectedScopeNodeId && testCase?.nodes[selectedScopeNodeId]?.status === "failed" ? (
-                <Alert
-                  message="Node execution failed"
-                  description={testCase.nodes[selectedScopeNodeId].error?.message ?? "Unknown error"}
-                  showIcon
-                  type="error"
-                />
-              ) : selectedScopeNodeId && testCase?.nodes[selectedScopeNodeId]?.status !== "completed" ? (
-                <Alert message="Selected node has no completed output yet." showIcon type="info" />
-              ) : (
-                <NodeOutputPreview output={selectedNodeOutput} />
-              )}
+              <OutputInspector
+                error={inspectorError}
+                loading={loadingNodeOutput}
+                output={selectedNodeOutput}
+                selectedNodeId={selectedScopeNodeId}
+                testCase={testCase}
+              />
             </div>
 
             <div

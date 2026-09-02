@@ -633,4 +633,6 @@ async def test_create_node_run_task_supports_file_ids_binding(
         "usr_unit_api",
     )
     assert second_record is not None
-    assert selected_input.config["file"] == second_record.storage_path
+    assert selected_input.config["file"] == str(
+        (isolated_task_storage / second_record.storage_path).resolve()
+    )

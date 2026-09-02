@@ -1,0 +1,54 @@
+{
+  "name": "retry",
+  "description": "Automatic retry after a provider error, including a hidden custom message (display false) that the projection must drop entirely before retrying succeeds and settles.",
+  "provenance": {
+    "sdk": { "@earendil-works/pi-coding-agent": "0.84.1" },
+    "sources": [
+      "pi_runtime/src/main.mjs (toJsonEvent delta-only message_update)",
+      "pi_runtime/node_modules/@earendil-works/pi-coding-agent/dist/core/agent-session.d.ts (auto_retry_start/auto_retry_end)",
+      "app/services/chatbox_projection.py (hidden custom message drop)"
+    ]
+  },
+  "raw_events": [
+    { "type": "agent_start" },
+    { "type": "turn_start" },
+    { "type": "message_start", "message": { "id": "u1", "role": "user", "content": [{ "type": "text", "text": "continue" }], "timestamp": 1 } },
+    { "type": "message_end", "message": { "id": "u1", "role": "user", "content": [{ "type": "text", "text": "continue" }], "timestamp": 1 } },
+    { "type": "message_start", "message": { "id": "a1", "role": "assistant", "content": [], "status": "streaming", "timestamp": 2 } },
+    { "type": "message_end", "message": { "id": "a1", "role": "assistant", "content": [], "status": "error", "stopReason": "error", "errorMessage": "503 service unavailable", "timestamp": 3 } },
+    { "type": "turn_end" },
+    { "type": "agent_end" },
+    { "type": "message_start", "message": { "id": "c1", "role": "custom", "type": "custom_message", "content": [{ "type": "text", "text": "internal retry bookkeeping" }], "display": false, "internal": { "source_path": "/home/agent/.pi/agent/extensions/retry.js" }, "timestamp": 4 } },
+    { "type": "message_end", "message": { "id": "c1", "role": "custom", "type": "custom_message", "content": [{ "type": "text", "text": "internal retry bookkeeping" }], "display": false, "internal": { "source_path": "/home/agent/.pi/agent/extensions/retry.js" }, "timestamp": 4 } },
+    { "type": "auto_retry_start", "attempt": 1, "maxAttempts": 3, "delayMs": 1000, "errorMessage": "503 service unavailable" },
+    { "type": "auto_retry_end", "success": true, "attempt": 1 },
+    { "type": "turn_start" },
+    { "type": "message_start", "message": { "id": "a2", "role": "assistant", "content": [], "status": "streaming", "timestamp": 5 } },
+    { "type": "message_update", "assistantMessageEvent": { "type": "text_delta", "contentIndex": 0, "delta": "Retried and recovered." } },
+    { "type": "message_end", "message": { "id": "a2", "role": "assistant", "content": [{ "type": "text", "text": "Retried and recovered." }], "status": "complete", "stopReason": "stop", "timestamp": 6 } },
+    { "type": "turn_end" },
+    { "type": "agent_end" },
+    { "type": "agent_settled" }
+  ],
+  "projected_events": [
+    { "type": "agent_start" },
+    { "type": "turn_start" },
+    { "type": "message_start", "message": { "id": "u1", "role": "user", "content": [{ "type": "text", "text": "continue" }], "timestamp": 1 } },
+    { "type": "message_end", "message": { "id": "u1", "role": "user", "content": [{ "type": "text", "text": "continue" }], "timestamp": 1 } },
+    { "type": "message_start", "message": { "id": "a1", "role": "assistant", "content": [], "status": "streaming", "timestamp": 2 } },
+    { "type": "message_end", "message": { "id": "a1", "role": "assistant", "content": [], "status": "error", "stopReason": "error", "timestamp": 3 } },
+    { "type": "turn_end" },
+    { "type": "agent_end" },
+    null,
+    null,
+    { "type": "auto_retry_start", "attempt": 1, "maxAttempts": 3, "delayMs": 1000, "errorMessage": "Provider request failed" },
+    { "type": "auto_retry_end", "success": true, "attempt": 1 },
+    { "type": "turn_start" },
+    { "type": "message_start", "message": { "id": "a2", "role": "assistant", "content": [], "status": "streaming", "timestamp": 5 } },
+    { "type": "message_update", "assistantMessageEvent": { "type": "text_delta", "contentIndex": 0, "delta": "Retried and recovered." } },
+    { "type": "message_end", "message": { "id": "a2", "role": "assistant", "content": [{ "type": "text", "text": "Retried and recovered." }], "status": "complete", "stopReason": "stop", "timestamp": 6 } },
+    { "type": "turn_end" },
+    { "type": "agent_end" },
+    { "type": "agent_settled" }
+  ]
+}

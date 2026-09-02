@@ -87,6 +87,8 @@ def test_deletion_impact_returns_all_business_counts(
             "databases": 1,
             "evaluation_runs": 1,
             "task_runs": 1,
+            "files": 0,
+            "pending_storage_cleanups": 0,
             "workspace_providers": 1,
         },
     }

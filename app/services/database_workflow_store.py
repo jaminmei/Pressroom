@@ -13,6 +13,8 @@ from sqlalchemy.orm import Session
 from app.db.session import SessionLocal
 from app.models.db.api_invocation import ApiInvocation
 from app.models.db.api_key import ApiKey
+from app.models.db.evaluation_run import EvaluationRun
+from app.models.db.task_run import TaskRun
 from app.models.db.user_account import UserAccount
 from app.models.db.workflow_record import WorkflowRecord
 from app.models.db.workflow_version_record import WorkflowVersionRecord
@@ -45,6 +47,25 @@ class WorkflowVersionConflictError(Exception):
     current_name: str | None
     last_saved_by: WorkflowActor | None
     updated_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class WorkflowDeletionImpact:
+    workflow_id: str
+    task_runs: int
+    active_task_runs: int
+    evaluation_runs: int
+    active_evaluation_runs: int
+    api_keys: int
+    active_api_keys: int
+
+    @property
+    def can_delete(self) -> bool:
+        return (
+            self.active_task_runs == 0
+            and self.active_evaluation_runs == 0
+            and self.active_api_keys == 0
+        )
 
 
 class DatabaseWorkflowStore:
@@ -266,13 +287,28 @@ class DatabaseWorkflowStore:
             if version_record is None:
                 return None
 
+            next_version = record.latest_version + 1
             record.name = version_record.name
             record.description = version_record.description
             record.current_definition_json = version_record.definition_json
+            record.latest_version = next_version
             record.updated_at = _utcnow_naive()
             if actor is not None:
                 record.last_saved_by_user_id = actor.user_id
             session.add(record)
+            session.add(
+                WorkflowVersionRecord(
+                    id=f"wfv_{uuid4()}",
+                    workflow_id=record.id,
+                    version=next_version,
+                    status="saved",
+                    name=version_record.name,
+                    description=version_record.description,
+                    definition_json=version_record.definition_json,
+                    created_by_user_id=actor.user_id if actor is not None else None,
+                    created_at=_utcnow_naive(),
+                )
+            )
             session.commit()
             return self._build_workflow(session, record, include_versions=True)
 
@@ -318,6 +354,79 @@ class DatabaseWorkflowStore:
             session.delete(record)
             session.commit()
             return True
+
+    def deletion_impact(
+        self,
+        workflow_id: str,
+        *,
+        workspace_id: str | None = None,
+    ) -> WorkflowDeletionImpact | None:
+        _require_workspace_filter(workspace_id)
+        with self._session_factory() as session:
+            record = self._resolve_record(session, workflow_id, workspace_id=workspace_id)
+            if record is None:
+                return None
+
+            task_runs = session.scalar(
+                select(func.count())
+                .select_from(TaskRun)
+                .where(
+                    TaskRun.workspace_id == workspace_id,
+                    TaskRun.workflow_id == record.id,
+                )
+            )
+            active_task_runs = session.scalar(
+                select(func.count())
+                .select_from(TaskRun)
+                .where(
+                    TaskRun.workspace_id == workspace_id,
+                    TaskRun.workflow_id == record.id,
+                    TaskRun.status.in_(("pending", "queued", "running")),
+                )
+            )
+            evaluation_runs = session.scalar(
+                select(func.count())
+                .select_from(EvaluationRun)
+                .where(
+                    EvaluationRun.workspace_id == workspace_id,
+                    EvaluationRun.workflow_id == record.id,
+                )
+            )
+            active_evaluation_runs = session.scalar(
+                select(func.count())
+                .select_from(EvaluationRun)
+                .where(
+                    EvaluationRun.workspace_id == workspace_id,
+                    EvaluationRun.workflow_id == record.id,
+                    EvaluationRun.status.in_(("pending", "queued", "running")),
+                )
+            )
+            api_keys = session.scalar(
+                select(func.count())
+                .select_from(ApiKey)
+                .where(
+                    ApiKey.workspace_id == workspace_id,
+                    ApiKey.workflow_id == record.id,
+                )
+            )
+            active_api_keys = session.scalar(
+                select(func.count())
+                .select_from(ApiKey)
+                .where(
+                    ApiKey.workspace_id == workspace_id,
+                    ApiKey.workflow_id == record.id,
+                    ApiKey.is_active.is_(True),
+                )
+            )
+            return WorkflowDeletionImpact(
+                workflow_id=record.id,
+                task_runs=int(task_runs or 0),
+                active_task_runs=int(active_task_runs or 0),
+                evaluation_runs=int(evaluation_runs or 0),
+                active_evaluation_runs=int(active_evaluation_runs or 0),
+                api_keys=int(api_keys or 0),
+                active_api_keys=int(active_api_keys or 0),
+            )
 
     def list_paginated(
         self,

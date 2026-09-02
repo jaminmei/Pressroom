@@ -16,6 +16,10 @@ import pytest
 from sqlalchemy import Table, create_engine
 
 from app.db.base import Base
+from app.models.db.agent_session_credential import AgentSessionCredential
+from app.models.db.chatbox_session import ChatboxSession
+from app.models.db.chatbox_session_selection import ChatboxSessionSelection
+from app.models.db.tool_approval_request import ToolApprovalRequest
 from app.models.db.workspace import Workspace
 from app.models.db.workspace_member import WorkspaceMember
 
@@ -132,12 +136,23 @@ def test_workspace_migration_round_trip(_migration_database_url: str) -> None:
     engine = create_engine(database_url)
     workspace_table = cast(Table, Workspace.__table__)
     workspace_member_table = cast(Table, WorkspaceMember.__table__)
+    chatbox_session_table = cast(Table, ChatboxSession.__table__)
+    agent_runtime_tables = (
+        cast(Table, ChatboxSessionSelection.__table__),
+        cast(Table, AgentSessionCredential.__table__),
+        cast(Table, ToolApprovalRequest.__table__),
+    )
 
     try:
         _run_alembic(database_url, "upgrade", BASE_REVISION)
 
         Base.metadata.remove(workspace_table)
         Base.metadata.remove(workspace_member_table)
+        # Keep this legacy fixture at the requested historical revision;
+        # later Alembic migrations must create their own tables.
+        for table in agent_runtime_tables:
+            Base.metadata.remove(table)
+        Base.metadata.remove(chatbox_session_table)
         Base.metadata.create_all(bind=engine)
 
         older_user_id = _seed_legacy_data(database_path)
@@ -232,4 +247,7 @@ def test_workspace_migration_round_trip(_migration_database_url: str) -> None:
         Base.metadata.remove(workspace_member_table)
         workspace_table.to_metadata(Base.metadata)
         workspace_member_table.to_metadata(Base.metadata)
+        chatbox_session_table.to_metadata(Base.metadata)
+        for table in agent_runtime_tables:
+            table.to_metadata(Base.metadata)
         engine.dispose()

@@ -1,5 +1,9 @@
 import { apiClient } from "@/services/api";
-import type { AuthEnvelope, LoginRequest, RegisterRequest } from "@/types/auth";
+import type {
+  AuthEnvelope,
+  LoginRequest,
+  RegisterRequest
+} from "@/types/auth";
 
 export async function registerWithPassword(payload: RegisterRequest): Promise<AuthEnvelope> {
   const response = await apiClient.post<AuthEnvelope>("/auth/register", payload);

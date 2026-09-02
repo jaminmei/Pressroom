@@ -62,7 +62,7 @@ def test_old_row_remains_legacy_when_v5_migrates(tmp_path: Path) -> None:
 
     assert row == ("legacy_unassigned", None)
     assert {"idx_providers_scope", "idx_providers_workspace_id", "idx_providers_default"} <= indexes
-    assert version == 6
+    assert version == 9
 
 
 def test_new_seed_is_system(tmp_path: Path) -> None:

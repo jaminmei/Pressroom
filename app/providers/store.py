@@ -20,6 +20,9 @@ from cryptography.fernet import Fernet
 from app.providers.db import get_connection
 from app.providers.encryption import EncryptionError, decrypt, encrypt  # noqa: F401
 from app.providers.models import (
+    DEFAULT_LLM_MODEL_CONTEXT_WINDOW,
+    DEFAULT_LLM_MODEL_MAX_TOKENS,
+    ApiProtocol,
     ApiStyle,
     ModelProviderCreate,
     ModelProviderRow,
@@ -28,7 +31,9 @@ from app.providers.models import (
     ProviderModelResponse,
     ProviderScope,
     ProviderType,
+    normalize_llm_api_protocol,
     normalize_provider_protocol,
+    validate_llm_model_capabilities,
 )
 
 
@@ -119,21 +124,30 @@ class ProviderStore:
                     """,
                     (data.engine_category, data.scope.value, data.workspace_id),
                 )
+            if data.is_chatbot_default:
+                conn.execute(
+                    """UPDATE model_providers SET is_chatbot_default = 0
+                       WHERE provider_type = 'llm_api' AND scope = ? AND workspace_id IS ?
+                         AND is_chatbot_default = 1""",
+                    (data.scope.value, data.workspace_id),
+                )
 
             conn.execute(
                 """
                 INSERT INTO model_providers (
                     id, name, provider_type, engine_category,
-                    base_url, api_style, api_version, api_key,
+                    base_url, api_style, api_version, api_protocol, api_key,
+                    model_id, model_display_name, model_context_window,
+                    model_max_tokens, model_reasoning,
                     auth_type, auth_config,
-                    is_enabled, is_default,
+                    is_enabled, is_default, is_chatbot_default,
                     response_format, config_schema, extra_config,
                     health_url, created_at, updated_at, scope, workspace_id
                 ) VALUES (
+                    ?, ?, ?, ?, ?, ?, ?,
+                    ?, ?, ?, ?, ?,
                     ?, ?, ?, ?,
-                    ?, ?, ?, ?,
-                    ?, ?,
-                    ?, ?,
+                    ?, ?, ?,
                     ?, ?, ?,
                     ?, ?, ?, ?, ?
                 )
@@ -146,11 +160,18 @@ class ProviderStore:
                     data.base_url,
                     data.api_style.value if data.api_style is not None else None,
                     data.api_version,
+                    data.api_protocol.value if data.api_protocol is not None else None,
                     encrypted_key,
+                    data.model_id,
+                    data.model_display_name,
+                    data.model_context_window,
+                    data.model_max_tokens,
+                    int(data.model_reasoning) if data.model_reasoning is not None else None,
                     data.auth_type,
                     auth_config_json,
                     int(data.is_enabled),
                     int(is_default),
+                    int(data.is_chatbot_default),
                     data.response_format.value,
                     config_schema_json,
                     extra_config_json,
@@ -322,16 +343,49 @@ class ProviderStore:
                 updates[json_col] = json.dumps(updates[json_col])
 
         # Coerce enums to their string values so SQLite accepts them
-        for enum_col in ("provider_type", "api_style", "auth_type", "response_format"):
+        for enum_col in (
+            "provider_type",
+            "api_style",
+            "api_protocol",
+            "auth_type",
+            "response_format",
+        ):
             if enum_col in updates:
                 val = updates[enum_col]
                 if isinstance(val, Enum):
                     updates[enum_col] = val.value
 
         # Coerce bools to int for SQLite
-        for bool_col in ("is_enabled", "is_default"):
+        for bool_col in (
+            "is_enabled",
+            "is_default",
+            "is_chatbot_default",
+            "model_reasoning",
+        ):
             if bool_col in updates:
-                updates[bool_col] = int(bool(updates[bool_col]))
+                value = updates[bool_col]
+                updates[bool_col] = int(bool(value)) if value is not None else None
+
+        runtime_fields = {
+            "provider_type",
+            "base_url",
+            "api_protocol",
+            "api_key",
+            "model_id",
+            "model_context_window",
+            "model_max_tokens",
+            "model_reasoning",
+            "auth_type",
+            "auth_config",
+            "is_enabled",
+        }
+        if runtime_fields.intersection(updates) and (
+            existing.provider_type == ProviderType.llm_api
+            or updates.get("provider_type") == ProviderType.llm_api.value
+        ):
+            # A successful readiness probe describes one exact runtime
+            # configuration. Any invocation-affecting edit makes it stale.
+            updates["chatbot_ready"] = 0
 
         updates["updated_at"] = datetime.now(timezone.utc).isoformat()
 
@@ -353,6 +407,13 @@ class ProviderStore:
                        AND is_default = 1 AND id != ?
                     """,
                     (category, existing.scope.value, existing.workspace_id, provider_id),
+                )
+            if updates.get("is_chatbot_default") == 1:
+                conn.execute(
+                    """UPDATE model_providers SET is_chatbot_default = 0
+                       WHERE provider_type = 'llm_api' AND scope = ? AND workspace_id IS ?
+                         AND is_chatbot_default = 1 AND id != ?""",
+                    (existing.scope.value, existing.workspace_id, provider_id),
                 )
             conn.execute(
                 f"UPDATE model_providers SET {set_clause} WHERE id = ?",  # noqa: S608
@@ -379,6 +440,73 @@ class ProviderStore:
             raise ValueError("api_style must be openai or azure_openai")
         version_raw = updates.get("api_version", existing.api_version)
         version = str(version_raw) if version_raw is not None else None
+        protocol_raw = updates.get(
+            "api_protocol",
+            None
+            if "provider_type" in updates and provider_type != ProviderType.llm_api
+            else existing.api_protocol,
+        )
+        if protocol_raw is None:
+            protocol_input: ApiProtocol | str | None = None
+        elif isinstance(protocol_raw, (ApiProtocol, str)):
+            protocol_input = protocol_raw
+        else:
+            raise ValueError("api_protocol must be a supported llm_api protocol")
+        protocol = normalize_llm_api_protocol(provider_type, protocol_input)
+        model_id_raw = updates.get("model_id", existing.model_id)
+        if provider_type == ProviderType.llm_api and (
+            not isinstance(model_id_raw, str) or not model_id_raw.strip()
+        ):
+            raise ValueError("llm_api providers require model_id")
+        capability_fields = (
+            "model_context_window",
+            "model_max_tokens",
+            "model_reasoning",
+        )
+        if provider_type == ProviderType.llm_api:
+            context_window = updates.get(
+                "model_context_window",
+                existing.model_context_window or DEFAULT_LLM_MODEL_CONTEXT_WINDOW,
+            )
+            max_tokens = updates.get(
+                "model_max_tokens",
+                existing.model_max_tokens or DEFAULT_LLM_MODEL_MAX_TOKENS,
+            )
+            reasoning = updates.get(
+                "model_reasoning",
+                existing.model_reasoning if existing.model_reasoning is not None else False,
+            )
+            context_window, max_tokens, reasoning = validate_llm_model_capabilities(
+                context_window,
+                max_tokens,
+                reasoning,
+            )
+            if "provider_type" in updates or any(field in updates for field in capability_fields):
+                updates.update(
+                    model_context_window=context_window,
+                    model_max_tokens=max_tokens,
+                    model_reasoning=reasoning,
+                )
+        elif any(updates.get(field) is not None for field in capability_fields):
+            raise ValueError("only llm_api providers can set model capability metadata")
+        elif "provider_type" in updates:
+            updates.update(
+                model_id=None,
+                model_display_name=None,
+                model_context_window=None,
+                model_max_tokens=None,
+                model_reasoning=None,
+            )
+        scope_raw = updates.get("scope", existing.scope)
+        scope = scope_raw if isinstance(scope_raw, ProviderScope) else ProviderScope(str(scope_raw))
+        chatbot_default_raw = updates.get(
+            "is_chatbot_default",
+            existing.is_chatbot_default,
+        )
+        if bool(chatbot_default_raw) and (
+            provider_type != ProviderType.llm_api or scope != ProviderScope.workspace
+        ):
+            raise ValueError("only workspace llm_api providers can be chatbot default")
 
         if provider_type == ProviderType.openai_compatible and style_raw is None:
             style_raw = ApiStyle.openai
@@ -399,6 +527,8 @@ class ProviderStore:
             updates["api_style"] = style
         if "provider_type" in updates or "api_style" in updates or "api_version" in updates:
             updates["api_version"] = version
+        if "provider_type" in updates or "api_protocol" in updates:
+            updates["api_protocol"] = protocol
         return updates
 
     def delete_provider(self, provider_id: str, workspace_id: str | None = None) -> bool:
@@ -521,6 +651,26 @@ class ProviderStore:
     # ------------------------------------------------------------------
     # API key
     # ------------------------------------------------------------------
+
+    def set_chatbot_ready(
+        self,
+        provider_id: str,
+        chatbot_ready: bool,
+        workspace_id: str,
+    ) -> bool:
+        """Persist readiness only for a workspace-owned llm_api Provider."""
+
+        with get_connection(self._db_path) as conn:
+            cursor = conn.execute(
+                """UPDATE model_providers
+                      SET chatbot_ready = ?
+                    WHERE id = ?
+                      AND provider_type = 'llm_api'
+                      AND scope = 'workspace'
+                      AND workspace_id = ?""",
+                (int(chatbot_ready), provider_id, workspace_id),
+            )
+        return cursor.rowcount == 1
 
     def get_api_key(self, provider_id: str) -> str | None:
         """Return the decrypted API key for *provider_id*, or None.

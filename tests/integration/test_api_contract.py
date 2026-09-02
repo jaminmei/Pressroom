@@ -25,6 +25,7 @@ from app.main import app
 from app.models.execution import NodeOutput
 from app.repositories.task_run_repository import TaskRunSnapshot
 from app.services.dag_scheduler import DAGRunResult
+from app.storage.local import get_storage
 from tests._api_workspace_contract import (
     install_authenticated_workspace,
     remove_authenticated_workspace,
@@ -125,9 +126,11 @@ def isolated_contract_storage(
     monkeypatch.setenv("STORAGE_ROOT", str(tmp_path))
     monkeypatch.setenv("OCR_MOCK_MODE", "true")
     get_settings.cache_clear()
+    get_storage.cache_clear()
     get_task_orchestrator.cache_clear()
     yield tmp_path
     get_task_orchestrator.cache_clear()
+    get_storage.cache_clear()
     get_settings.cache_clear()
 
 
@@ -354,6 +357,7 @@ async def test_health_endpoint_response_format() -> None:
 @pytest.mark.anyio
 async def test_upload_endpoint_response_format(
     isolated_contract_storage: Path,
+    file_resource_database: None,
 ) -> None:
     """POST /api/files/upload must return file_id, filename, mime_type, size_bytes."""
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:

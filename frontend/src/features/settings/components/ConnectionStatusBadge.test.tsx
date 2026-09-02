@@ -21,7 +21,8 @@ const unhealthyResult = {
 };
 
 const noHealthUrlResult = {
-  status: "no_health_url" as const,
+  status: "unavailable" as const,
+  error_code: "PROVIDER_HEALTH_URL_MISSING",
   latency_ms: null,
   error: "No health URL configured",
   details: null,
@@ -29,7 +30,8 @@ const noHealthUrlResult = {
 };
 
 const noModelsResult = {
-  status: "no_models" as const,
+  status: "unavailable" as const,
+  error_code: "PROVIDER_MODELS_UNAVAILABLE",
   latency_ms: null,
   error: "No models configured",
   details: null,

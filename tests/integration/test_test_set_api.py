@@ -31,9 +31,14 @@ from app.api.test_sets import (
     router as test_sets_router,
 )
 from app.db.base import Base
+from app.errors import register_exception_handlers
 from app.models.auth import AuthenticatedContext, AuthSessionInfo, AuthUser
+from app.models.db.evaluation_result import EvaluationResult
+from app.models.db.evaluation_run import EvaluationRun
+from app.models.db.storage_cleanup_job import StorageCleanupJob
 from app.repositories.test_set_repository import TestSetRepository
 from app.services.document_thumbnail import UnsupportedThumbnailMimeTypeError
+from app.services.storage_cleanup import retry_pending_storage_cleanups
 from app.services.workspace_access import ResolvedContext
 from app.storage.test_set_storage import TestSetStorage
 
@@ -50,6 +55,7 @@ def _image_bytes(image_format: str, size: tuple[int, int] = (800, 400)) -> bytes
 def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
     monkeypatch.setenv("WORKSPACE_RBAC_ENFORCED", "true")
     app = FastAPI()
+    register_exception_handlers(app)
     app.include_router(test_sets_router, prefix="/api")
     app.include_router(test_documents_router, prefix="/api")
     app.dependency_overrides[get_authenticated_context] = lambda: AuthenticatedContext(
@@ -135,7 +141,7 @@ def test_get_and_delete_test_set(client: TestClient) -> None:
     assert missing.status_code == 404
 
 
-def test_delete_test_set_keeps_metadata_when_storage_cleanup_fails(
+def test_delete_test_set_persists_cleanup_outbox_when_storage_cleanup_fails(
     client: TestClient,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -146,13 +152,34 @@ def test_delete_test_set_keeps_metadata_when_storage_cleanup_fails(
         raise RuntimeError("storage cleanup failed")
 
     assert isinstance(client.app, FastAPI)
-    monkeypatch.setattr(client.app.state.test_set_storage, "delete_test_set", _boom)
+    storage = client.app.state.test_set_storage
+    original_delete = storage.delete_test_set
+    monkeypatch.setattr(storage, "delete_test_set", _boom)
 
     deleted = client.delete(f"/api/test-sets/{test_set_id}")
     assert deleted.status_code == 204
+    assert deleted.headers["x-cleanup-status"] == "pending"
+    cleanup_job_id = deleted.headers["x-cleanup-job-id"]
 
     missing = client.get(f"/api/test-sets/{test_set_id}")
     assert missing.status_code == 404
+    repository = client.app.state.test_set_repository
+    job = asyncio.run(repository.get_storage_cleanup_job(cleanup_job_id))
+    assert isinstance(job, StorageCleanupJob)
+    assert job.status == "failed"
+    assert job.error_code == "STORAGE_DELETE_FAILED"
+
+    monkeypatch.setattr(storage, "delete_test_set", original_delete)
+    completed, failed = asyncio.run(
+        retry_pending_storage_cleanups(
+            repository=repository,
+            storage=storage,
+        )
+    )
+    assert (completed, failed) == (1, 0)
+    retried_job = asyncio.run(repository.get_storage_cleanup_job(cleanup_job_id))
+    assert retried_job is not None
+    assert retried_job.status == "completed"
 
 
 def test_upload_list_detail_download_and_delete_document(client: TestClient) -> None:
@@ -166,6 +193,8 @@ def test_upload_list_detail_download_and_delete_document(client: TestClient) -> 
 
     assert uploaded.status_code == 201
     upload_payload = uploaded.json()
+    assert upload_payload["status"] == "success"
+    assert upload_payload["summary"] == {"total": 1, "succeeded": 1, "failed": 0}
     assert upload_payload["errors"] == []
     assert len(upload_payload["uploaded"]) == 1
     document_id = upload_payload["uploaded"][0]["id"]
@@ -194,7 +223,80 @@ def test_upload_list_detail_download_and_delete_document(client: TestClient) -> 
     assert missing.status_code == 404
 
 
-def test_delete_document_keeps_metadata_consistent_when_storage_cleanup_fails(
+def test_deletion_impact_blocks_active_evaluation_runs(client: TestClient) -> None:
+    created = client.post(
+        "/api/test-sets",
+        json={"name": "Protected", "description": None},
+    ).json()
+    test_set_id = created["id"]
+    uploaded = client.post(
+        f"/api/test-sets/{test_set_id}/documents/upload",
+        files=[("files", ("invoice.pdf", b"%PDF-1.4 fake", "application/pdf"))],
+    ).json()
+    document_id = uploaded["uploaded"][0]["id"]
+
+    empty_impact = client.get(f"/api/test-sets/{test_set_id}/deletion-impact")
+    assert empty_impact.status_code == 200
+    assert empty_impact.json() == {
+        "test_set_id": test_set_id,
+        "can_delete": True,
+        "documents": 1,
+        "ground_truth_versions": 0,
+        "evaluation_runs": 0,
+        "active_evaluation_runs": 0,
+        "evaluation_results": 0,
+    }
+
+    assert isinstance(client.app, FastAPI)
+    repository = client.app.state.test_set_repository
+
+    async def _seed_active_evaluation() -> None:
+        async with repository._session_factory() as session:
+            session.add(
+                EvaluationRun(
+                    id="eval_active_delete_impact",
+                    test_set_id=test_set_id,
+                    workspace_id="ws_test_set_api",
+                    workflow_id="wf_delete_impact",
+                    status="running",
+                    total_documents=1,
+                )
+            )
+            session.add(
+                EvaluationResult(
+                    id="eval_result_delete_impact",
+                    evaluation_run_id="eval_active_delete_impact",
+                    document_id=document_id,
+                    status="pending",
+                )
+            )
+            await session.commit()
+
+    asyncio.run(_seed_active_evaluation())
+
+    test_set_impact = client.get(f"/api/test-sets/{test_set_id}/deletion-impact")
+    document_impact = client.get(
+        f"/api/test-sets/{test_set_id}/documents/{document_id}/deletion-impact"
+    )
+    assert test_set_impact.json()["can_delete"] is False
+    assert test_set_impact.json()["active_evaluation_runs"] == 1
+    assert document_impact.json() == {
+        "document_id": document_id,
+        "can_delete": False,
+        "ground_truth_versions": 0,
+        "evaluation_results": 1,
+        "active_evaluation_runs": 1,
+    }
+
+    document_delete = client.delete(f"/api/test-sets/{test_set_id}/documents/{document_id}")
+    test_set_delete = client.delete(f"/api/test-sets/{test_set_id}")
+    assert document_delete.status_code == 409
+    assert document_delete.json()["error_code"] == "DOCUMENT_IN_USE"
+    assert test_set_delete.status_code == 409
+    assert test_set_delete.json()["error_code"] == "TEST_SET_IN_USE"
+
+
+def test_delete_document_persists_cleanup_outbox_when_storage_cleanup_fails(
     client: TestClient,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -215,9 +317,14 @@ def test_delete_document_keeps_metadata_consistent_when_storage_cleanup_fails(
 
     deleted = client.delete(f"/api/test-sets/{test_set_id}/documents/{document_id}")
     assert deleted.status_code == 204
+    assert deleted.headers["x-cleanup-status"] == "pending"
+    cleanup_job_id = deleted.headers["x-cleanup-job-id"]
 
     missing = client.get(f"/api/test-sets/{test_set_id}/documents/{document_id}")
     assert missing.status_code == 404
+    job = asyncio.run(client.app.state.test_set_repository.get_storage_cleanup_job(cleanup_job_id))
+    assert job is not None
+    assert job.status == "failed"
 
 
 def test_upload_reports_unsupported_files_without_failing_entire_request(
@@ -241,7 +348,11 @@ def test_upload_reports_unsupported_files_without_failing_entire_request(
     payload = uploaded.json()
     assert len(payload["uploaded"]) == 1
     assert len(payload["errors"]) == 1
+    assert payload["status"] == "partial"
+    assert payload["summary"] == {"total": 2, "succeeded": 1, "failed": 1}
+    assert [item["status"] for item in payload["items"]] == ["succeeded", "failed"]
     assert payload["errors"][0]["filename"] == "notes.txt"
+    assert payload["errors"][0]["code"] == "UNSUPPORTED_FILE_TYPE"
 
 
 def test_document_file_disposition_inline_returns_inline_header(client: TestClient) -> None:
@@ -308,6 +419,12 @@ def test_document_thumbnail_returns_bounded_cached_webp(
     mime_type: str,
     image_format: str,
 ) -> None:
+    if image_format == "PDF":
+        monkeypatch.setattr(
+            "app.services.document_thumbnail._convert_pdf_first_page",
+            lambda _content: Image.new("RGB", (800, 400), "navy"),
+        )
+
     created = client.post("/api/test-sets", json={"name": "Thumbnails", "description": None}).json()
     test_set_id = created["id"]
     uploaded = client.post(
@@ -363,7 +480,8 @@ def test_document_thumbnail_validates_size_and_reports_generation_errors(
 
     assert invalid_size.status_code == 422
     assert broken.status_code == 422
-    assert broken.json()["detail"] == "Document thumbnail could not be generated"
+    assert broken.json()["error_code"] == "REQUEST_VALIDATION_FAILED"
+    assert broken.json()["message"] == "Document thumbnail could not be generated"
 
 
 def test_document_thumbnail_reports_unsupported_type(
@@ -390,7 +508,8 @@ def test_document_thumbnail_reports_unsupported_type(
     )
 
     assert response.status_code == 415
-    assert response.json()["detail"] == "Thumbnail not supported for this file type"
+    assert response.json()["error_code"] == "UNSUPPORTED_FORMAT"
+    assert response.json()["message"] == "Thumbnail not supported for this file type"
 
 
 def test_delete_document_removes_cached_thumbnails(client: TestClient) -> None:

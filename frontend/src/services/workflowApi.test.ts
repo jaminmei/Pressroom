@@ -208,32 +208,14 @@ describe("workflowApi", () => {
     expect(response.data.name).toBe("Invoice OCR v2");
   });
 
-  it("calls restore with path parameter endpoint by default", async () => {
+  it("calls the canonical version restore endpoint", async () => {
     vi.mocked(apiClient.post).mockResolvedValue({
       data: { success: true, data: { id: "wf_restored" } }
     } as never);
 
     const response = await restoreWorkflowVersion("wf_1", 2);
 
-    expect(apiClient.post).toHaveBeenCalledWith("/workflows/wf_1/restore/2");
+    expect(apiClient.post).toHaveBeenCalledWith("/workflows/wf_1/versions/2/restore");
     expect(response.data.id).toBe("wf_restored");
-  });
-
-  it("falls back to legacy restore endpoint when path endpoint is unavailable", async () => {
-    vi.mocked(apiClient.post)
-      .mockRejectedValueOnce({
-        response: { status: 404 }
-      } as never)
-      .mockResolvedValueOnce({
-        data: { success: true, data: { workflow_id: "wf_1", restored_version: 2 } }
-      } as never);
-
-    const response = await restoreWorkflowVersion("wf_1", 2);
-
-    expect(apiClient.post).toHaveBeenNthCalledWith(1, "/workflows/wf_1/restore/2");
-    expect(apiClient.post).toHaveBeenNthCalledWith(2, "/workflows/wf_1/restore", {
-      version: 2
-    });
-    expect(response.data.workflow_id).toBe("wf_1");
   });
 });

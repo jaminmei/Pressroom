@@ -487,6 +487,8 @@ def test_audit_endpoint_uses_settings_permission_and_empty_contract(
 
     assert statuses == {"owner": 200, "admin": 200, "editor": 403, "runner": 403, "viewer": 403}
     assert owner.client.get(f"/api/workspaces/{workspace_id}/audit-events").json() == {
+        "implemented": False,
+        "status": "not_implemented",
         "items": [],
         "total": 0,
     }

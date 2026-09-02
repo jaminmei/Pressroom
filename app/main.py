@@ -10,6 +10,8 @@ from starlette.types import ExceptionHandler
 
 from app.api.admin.api_keys import router as admin_api_keys_router
 from app.api.admin.api_usage import router as admin_api_usage_router
+from app.api.internal_proxy import router as internal_proxy_router
+from app.api.internal_tools import router as internal_tools_router
 from app.api.public.error_response import (
     PublicApiError,
     public_api_exception_handler,
@@ -31,11 +33,13 @@ from app.repositories.api_key_repository import ApiKeyRepository
 from app.repositories.evaluation_repository import EvaluationRepository
 from app.repositories.ground_truth_repository import GroundTruthRepository
 from app.repositories.test_set_repository import TestSetRepository
+from app.services.agent_tool_gateway import revoke_agent_tool_gateway_grants
 from app.services.api_key_service import ApiKeyService
 from app.services.document_router import DocumentRouter
 from app.services.evaluation_service import EvaluationService
 from app.services.output_formatter.markdown_formatter import MarkdownFormatter
 from app.services.rate_limiter import RateLimiter
+from app.services.storage_cleanup import retry_pending_storage_cleanups
 from app.services.task_orchestrator import TaskOrchestrator
 from app.services.workflow_execution import WorkflowExecutionService
 from app.storage.local import get_storage
@@ -88,6 +92,16 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     runtime_settings = get_settings()
     app.state.test_set_repository = TestSetRepository()
     app.state.test_set_storage = TestSetStorage(runtime_settings.storage_root)
+    completed_cleanups, failed_cleanups = await retry_pending_storage_cleanups(
+        repository=app.state.test_set_repository,
+        storage=app.state.test_set_storage,
+    )
+    if completed_cleanups or failed_cleanups:
+        logger.info(
+            "Storage cleanup retry completed=%d pending=%d",
+            completed_cleanups,
+            failed_cleanups,
+        )
     app.state.ground_truth_repository = GroundTruthRepository()
     app.state.evaluation_repository = EvaluationRepository()
     app.state.api_key_repository = ApiKeyRepository()
@@ -197,6 +211,40 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         except Exception:
             pass
 
+    # Shutdown: stop browser-independent Pi event pumps before checkpointing,
+    # then retain the sessions as resumable instead of treating a normal
+    # application restart as a terminal runtime failure.
+    chatbox_brokers = getattr(app.state, "chatbox_runtime_brokers", None)
+    if chatbox_brokers:
+        broker_items = list(chatbox_brokers.items())
+        brokers = [broker for _session_id, broker in broker_items]
+        await asyncio.gather(*(broker.stop() for broker in brokers), return_exceptions=True)
+        for session_id, broker in broker_items:
+            try:
+                await broker.checkpoint_for_shutdown()
+            except Exception as exc:
+                logger.warning(
+                    "Failed to persist Agent Session shutdown checkpoint error_type=%s",
+                    type(exc).__name__,
+                )
+            finally:
+                revoke_agent_tool_gateway_grants(
+                    app,
+                    agent_session_id=session_id,
+                )
+        chatbox_brokers.clear()
+
+    # Shutdown: stop any live Node Pi runtime sessions (lazy-registered).
+    pi_runtime_launcher = getattr(app.state, "pi_runtime_launcher", None)
+    if pi_runtime_launcher is not None:
+        try:
+            await pi_runtime_launcher.shutdown_all()
+        except Exception as exc:
+            logger.warning(
+                "Failed to stop Pi runtime sessions error_type=%s",
+                type(exc).__name__,
+            )
+
 
 app = FastAPI(
     title=settings.app_name,
@@ -223,3 +271,11 @@ app.include_router(admin_api_keys_router, responses=canonical_error_responses())
 app.include_router(admin_api_usage_router, responses=canonical_error_responses())
 app.include_router(public_api_router)  # Public API at /api/v1/* (Bearer auth)
 app.include_router(ws_router)  # WebSocket at /ws/workflow/{run_id}
+app.include_router(
+    internal_proxy_router,
+    responses=canonical_error_responses(),
+)  # Internal proxy at /internal/proxy (not browser-facing)
+app.include_router(
+    internal_tools_router,
+    responses=canonical_error_responses(),
+)  # Internal Agent Tool Gateway (not browser-facing)

@@ -14,52 +14,6 @@ export interface BlockDetectionBox {
   height: number;
 }
 
-export interface BlockSelectionSourceImage {
-  image_id: string;
-  page_number: number;
-  width: number;
-  height: number;
-  preview_url: string;
-}
-
-export interface BlockSelectionCandidate {
-  block_id: string;
-  type: string;
-  bbox: BlockDetectionBox;
-  confidence: number;
-  label?: string;
-}
-
-export interface BlockSelectionPayload {
-  source_image: BlockSelectionSourceImage;
-  blocks: BlockSelectionCandidate[];
-  summary?: {
-    total_blocks: number;
-    by_type?: Record<string, number>;
-  };
-}
-
-export interface BlockSelectionRequest {
-  node_id: string;
-  node_type: string;
-  input_type: "block_selection";
-  payload: BlockSelectionPayload;
-}
-
-export interface SelectedBlockInput {
-  block_id: string;
-  engine: string;
-  engine_config?: Record<string, unknown>;
-}
-
-export interface SubmitBlockSelectionPayload {
-  input_type: "block_selection";
-  payload: {
-    source_image_id: string;
-    selected_blocks: SelectedBlockInput[];
-  };
-}
-
 export interface TaskProgress {
   total_nodes: number;
   completed_nodes: number;

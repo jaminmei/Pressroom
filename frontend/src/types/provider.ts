@@ -1,8 +1,10 @@
 // === Enums ===
 
-export type ProviderType = 'openai_compatible' | 'engine_service';
+export type ProviderType = 'openai_compatible' | 'engine_service' | 'llm_api';
 
 export type ApiStyle = 'openai' | 'azure_openai';
+
+export type ApiProtocol = 'openai_chat_completions' | 'openai_responses' | 'anthropic_messages';
 
 export type ProviderScope = 'system' | 'workspace';
 
@@ -43,12 +45,20 @@ export interface Provider {
   base_url: string;
   api_style: ApiStyle | null;
   api_version: string | null;
+  api_protocol?: ApiProtocol | null;
+  model_id?: string | null;
+  model_display_name?: string | null;
+  model_context_window?: number | null;
+  model_max_tokens?: number | null;
+  model_reasoning?: boolean | null;
   has_api_key: boolean;
   auth_type: AuthType;
   auth_config_public: Record<string, string> | null; // non-secret auth config fields (e.g. client_id)
   env_config: Record<string, string> | null; // read-only env-sourced config for display
   is_enabled: boolean;
   is_default: boolean;
+  is_chatbot_default?: boolean;
+  chatbot_ready?: boolean;
   config_schema: Record<string, unknown> | null;
   parameter_schema: Record<string, unknown> | null;
   extra_config: Record<string, unknown> | null;
@@ -67,7 +77,14 @@ export interface CreateProviderRequest {
   base_url: string;
   api_style?: ApiStyle | null;
   api_version?: string | null;
+  api_protocol?: ApiProtocol | null;
   api_key?: string | null;
+  model_id?: string | null;
+  model_display_name?: string | null;
+  model_context_window?: number;
+  model_max_tokens?: number;
+  model_reasoning?: boolean;
+  is_chatbot_default?: boolean;
   auth_type?: AuthType;
   auth_config?: Record<string, string> | null;
   health_url?: string | null;
@@ -78,7 +95,14 @@ export interface UpdateProviderRequest {
   base_url?: string | null;
   api_style?: ApiStyle | null;
   api_version?: string | null;
+  api_protocol?: ApiProtocol | null;
   api_key?: string | null;
+  model_id?: string | null;
+  model_display_name?: string | null;
+  model_context_window?: number | null;
+  model_max_tokens?: number | null;
+  model_reasoning?: boolean | null;
+  is_chatbot_default?: boolean | null;
   auth_type?: AuthType | null;
   auth_config?: Record<string, string> | null;
   health_url?: string | null;
@@ -95,18 +119,34 @@ export interface ModelTestResult {
 }
 
 export interface TestConnectionResponse {
-  status: 'healthy' | 'unhealthy' | 'no_health_url' | 'no_models';
+  operation?: 'provider.test' | 'provider.health';
+  target_type?: 'provider';
+  target_id?: string;
+  target_name?: string | null;
+  status: 'healthy' | 'unhealthy' | 'unavailable';
   latency_ms: number | null;
+  error_code?: string | null;
   error: string | null;
+  checked_at?: string;
   details: Record<string, unknown> | null;
   model_results: ModelTestResult[] | null;
+  provider_id?: string;
+  provider_name?: string;
 }
 
 export interface TestModelResponse {
-  status: 'ok' | 'failed';
+  operation?: 'provider.model.test';
+  target_type?: 'model';
+  target_id?: string;
+  target_name?: string | null;
+  status: 'healthy' | 'unhealthy' | 'unavailable';
   latency_ms: number | null;
+  error_code?: string | null;
   error: string | null;
+  checked_at?: string;
   model_response: string | null;
+  provider_id?: string;
+  provider_name?: string;
 }
 
 export interface DiscoverResponse {
@@ -117,4 +157,16 @@ export interface DiscoverResponse {
   schema_discovered: boolean;
   discovery_supported: boolean;
   message: string | null;
+}
+
+export interface ReadinessStepResult {
+  name: string;
+  status: 'pass' | 'fail' | 'skipped';
+  detail: string | null;
+}
+
+export interface ReadinessTestResponse {
+  provider_id: string;
+  chatbot_ready: boolean;
+  steps: ReadinessStepResult[];
 }

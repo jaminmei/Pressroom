@@ -272,24 +272,10 @@ function buildMatrixInput(
  *   5. max_outputs on source (rejected when >= 0 and currentOutputs >= max)
  *   6. MIME type compatibility
  *
- * When metadata is undefined (unregistered type), all structural checks
- * are skipped and type compatibility defaults to true (empty arrays).
- * This means unregistered types pass validation in the frontend.
  */
 
 // ---------------------------------------------------------------------------
-// 120-cell connection matrix
-// ---------------------------------------------------------------------------
-// processor/block_selector is NOT in the registry. The frontend
-// validateConnection resolves metadata=undefined for it, which causes
-// all structural checks (max_inputs, max_outputs) to be skipped and
-// isTypeCompatible to default to true (both arrays empty).
-// Therefore, connections involving processor/block_selector are VALID
-// in the frontend when the node is present in the nodes array.
-//
-// To keep the frontend matrix aligned with the backend expectations
-// (where unregistered nodes = invalid), we test block_selector cells
-// separately and document the behavioural divergence.
+// Registered connection contract cells
 // ---------------------------------------------------------------------------
 
 const CONNECTION_MATRIX: [string, string, boolean][] = [
@@ -359,9 +345,7 @@ const CONNECTION_MATRIX: [string, string, boolean][] = [
   ["processor/layout_detection", "engine/docling", false],              // 64
   ["processor/layout_detection", "output/markdown", false],             // 65
   ["processor/layout_detection", "end/final", false],                   // 66
-  // --- Row 7: processor/block_selector — SKIPPED (not in registry) ---
-  // See TestBlockSelectorFrontendBehaviour below for coverage.
-  // --- Row 8: engine/ocr (outputs: text/raw) ---
+  // --- Row 7: engine/ocr (outputs: text/raw) ---
   ["engine/ocr", "processor/image_enhance", false],    // 77
   ["engine/ocr", "processor/rotate", false],            // 78
   ["engine/ocr", "processor/layout_detection", false],  // 79
@@ -372,7 +356,7 @@ const CONNECTION_MATRIX: [string, string, boolean][] = [
   ["engine/ocr", "engine/docling", false],              // 85
   ["engine/ocr", "output/markdown", true],              // 86
   ["engine/ocr", "end/final", true],                    // 87
-  // --- Row 9: engine/model (outputs: text/raw) ---
+  // --- Row 8: engine/model (outputs: text/raw) ---
   ["engine/model", "processor/image_enhance", false],  // 88
   ["engine/model", "processor/rotate", false],          // 89
   ["engine/model", "processor/layout_detection", false], // 90
@@ -383,7 +367,7 @@ const CONNECTION_MATRIX: [string, string, boolean][] = [
   ["engine/model", "engine/docling", false],            // 96
   ["engine/model", "output/markdown", true],            // 97
   ["engine/model", "end/final", true],                  // 98
-  // --- Row 10: engine/text (outputs: text/raw) ---
+  // --- Row 9: engine/text (outputs: text/raw) ---
   ["engine/text", "processor/image_enhance", false],   // 99
   ["engine/text", "processor/rotate", false],           // 100
   ["engine/text", "processor/layout_detection", false], // 101
@@ -394,7 +378,7 @@ const CONNECTION_MATRIX: [string, string, boolean][] = [
   ["engine/text", "engine/docling", false],             // 107
   ["engine/text", "output/markdown", true],             // 108
   ["engine/text", "end/final", true],                   // 109
-  // --- Row 11: engine/markitdown (outputs: text/raw) ---
+  // --- Row 10: engine/markitdown (outputs: text/raw) ---
   ["engine/markitdown", "processor/image_enhance", false],     // 110
   ["engine/markitdown", "processor/rotate", false],             // 111
   ["engine/markitdown", "processor/layout_detection", false],   // 112
@@ -405,7 +389,7 @@ const CONNECTION_MATRIX: [string, string, boolean][] = [
   ["engine/markitdown", "engine/docling", false],               // 118
   ["engine/markitdown", "output/markdown", true],               // 119
   ["engine/markitdown", "end/final", true],                     // 120
-  // --- Row 12: engine/docling (outputs: text/raw) ---
+  // --- Row 11: engine/docling (outputs: text/raw) ---
   ["engine/docling", "processor/image_enhance", false],   // 121
   ["engine/docling", "processor/rotate", false],            // 122
   ["engine/docling", "processor/layout_detection", false],  // 123
@@ -416,7 +400,7 @@ const CONNECTION_MATRIX: [string, string, boolean][] = [
   ["engine/docling", "engine/docling", false],              // 129
   ["engine/docling", "output/markdown", true],              // 130
   ["engine/docling", "end/final", true],                    // 131
-  // --- Row 13: output/markdown (outputs: text/markdown) ---
+  // --- Row 12: output/markdown (outputs: text/markdown) ---
   ["output/markdown", "processor/image_enhance", false],  // 132
   ["output/markdown", "processor/rotate", false],          // 133
   ["output/markdown", "processor/layout_detection", false], // 134
@@ -430,47 +414,7 @@ const CONNECTION_MATRIX: [string, string, boolean][] = [
   ["processor/adaptor", "end/final", true],                // 143
 ];
 
-// ---------------------------------------------------------------------------
-// processor/block_selector cells (unregistered node type)
-// ---------------------------------------------------------------------------
-// When a node type is not in the registry, the frontend resolveNode returns
-// { node, metadata: undefined }. With undefined metadata:
-//   - max_inputs/max_outputs checks are skipped
-//   - isTypeCompatible defaults to true (empty arrays)
-// So the frontend considers these connections VALID — unlike the backend
-// which returns False when a node definition is missing.
-// ---------------------------------------------------------------------------
-
-const BLOCK_SELECTOR_CELLS: [string, string][] = [
-  // As target (cells 4, 15, 26, 37, 48, 59)
-  ["input/image", "processor/block_selector"],
-  ["input/pdf", "processor/block_selector"],
-  ["input/text", "processor/block_selector"],
-  ["processor/image_enhance", "processor/block_selector"],
-  ["processor/rotate", "processor/block_selector"],
-  ["processor/layout_detection", "processor/block_selector"],
-  // As source (cells 67-78)
-  ["processor/block_selector", "processor/image_enhance"],
-  ["processor/block_selector", "processor/rotate"],
-  ["processor/block_selector", "processor/layout_detection"],
-  ["processor/block_selector", "processor/block_selector"],
-  ["processor/block_selector", "engine/ocr"],
-  ["processor/block_selector", "engine/model"],
-  ["processor/block_selector", "engine/text"],
-  ["processor/block_selector", "engine/markitdown"],
-  ["processor/block_selector", "engine/docling"],
-  ["processor/block_selector", "output/markdown"],
-  ["processor/block_selector", "end/final"],
-  // As target from engines/output (cells 80, 91, 102, 113, 124, 135)
-  ["engine/ocr", "processor/block_selector"],
-  ["engine/model", "processor/block_selector"],
-  ["engine/text", "processor/block_selector"],
-  ["engine/markitdown", "processor/block_selector"],
-  ["engine/docling", "processor/block_selector"],
-  ["output/markdown", "processor/block_selector"],
-];
-
-describe("Connection Matrix (143-cell exhaustive)", () => {
+describe("Connection Matrix", () => {
   it.each(CONNECTION_MATRIX)(
     "%s -> %s should be %s",
     (sourceType, targetType, expected) => {
@@ -480,24 +424,9 @@ describe("Connection Matrix (143-cell exhaustive)", () => {
     },
   );
 
-  it("matrix covers 121 registered-type cells (144 - 23 block_selector)", () => {
+  it("covers all 121 registered connection contract cells", () => {
     expect(CONNECTION_MATRIX.length).toBe(121);
-    expect(CONNECTION_MATRIX.length + BLOCK_SELECTOR_CELLS.length).toBe(144);
   });
-});
-
-describe("Block selector cells (unregistered node — frontend allows)", () => {
-  it.each(BLOCK_SELECTOR_CELLS)(
-    "%s -> %s passes frontend validation (metadata undefined)",
-    (sourceType, targetType) => {
-      const input = buildMatrixInput(sourceType, targetType);
-      const result = validateConnection(input);
-      // Frontend allows connections when registry metadata is missing
-      // because all constraint checks are skipped.
-      expect(result.isValid).toBe(true);
-      expect(result.isTypeCompatible).toBe(true);
-    },
-  );
 });
 
 describe("Structural constraints in validateConnection", () => {

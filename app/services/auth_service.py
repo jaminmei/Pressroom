@@ -6,7 +6,7 @@ import re
 import secrets
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Callable
+from typing import Callable, Literal
 from uuid import uuid4
 
 from sqlalchemy import Select, select
@@ -190,16 +190,35 @@ class AuthService:
         user: UserAccount,
         auth_session: AuthSession,
     ) -> AuthenticatedContext:
-        workspace_id: str | None = None
+        return self.build_context_for_credential(
+            session=session,
+            user=user,
+            credential_id=auth_session.id,
+            expires_at=auth_session.expires_at,
+            auth_kind="session",
+        )
+
+    def build_context_for_credential(
+        self,
+        *,
+        session: Session,
+        user: UserAccount,
+        credential_id: str,
+        expires_at: datetime,
+        auth_kind: Literal["session", "agent_session_token"],
+        workspace_id: str | None = None,
+    ) -> AuthenticatedContext:
+        """Build the shared user/workspace context for an authenticated credential."""
+        resolved_workspace_id: str | None = workspace_id
         role: WorkspaceRole | None = None
         capabilities: frozenset[str] = frozenset()
 
         if workspace_rbac_enforced(self._settings):
-            workspace_id = resolve_default_workspace(session, user.id)
+            resolved_workspace_id = workspace_id or resolve_default_workspace(session, user.id)
             membership = session.execute(
                 select(WorkspaceMember).where(
                     WorkspaceMember.user_id == user.id,
-                    WorkspaceMember.workspace_id == workspace_id,
+                    WorkspaceMember.workspace_id == resolved_workspace_id,
                 )
             ).scalar_one()
             role = WorkspaceRole(membership.role)
@@ -213,13 +232,14 @@ class AuthService:
                 created_at=_as_aware(user.created_at),
             ),
             session=AuthSessionInfo(
-                id=auth_session.id,
-                user_id=auth_session.user_id,
-                expires_at=_as_aware(auth_session.expires_at),
+                id=credential_id,
+                user_id=user.id,
+                expires_at=_as_aware(expires_at),
             ),
-            workspace_id=workspace_id,
+            workspace_id=resolved_workspace_id,
             role=role,
             capabilities=capabilities,
+            auth_kind=auth_kind,
         )
 
     def _find_session(self, session: Session, raw_session_token: str) -> AuthSession | None:
