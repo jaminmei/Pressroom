@@ -34,6 +34,7 @@ from app.services.adaptor_test_workbench import (
     get_node_output,
     get_test_case,
     get_test_case_definition,
+    set_test_case_status,
     store_execution,
     update_node_status,
 )
@@ -64,6 +65,12 @@ WorkflowRunContext = Annotated[
     ResolvedContext,
     Depends(require_workspace_capability("workflow.run")),
 ]
+
+
+def _active_workspace_id(ctx: ResolvedContext) -> str:
+    if ctx.workspace_id is None:
+        raise RuntimeError("Workspace-scoped dependency returned no workspace")
+    return ctx.workspace_id
 
 
 def _provider_resolver_for_request(
@@ -106,8 +113,12 @@ def _input_identities_from_request(
     return identities
 
 
-def _test_case_response_payload(test_case_id: str) -> JSONResponse:
-    test_case = get_test_case(test_case_id)
+def _test_case_response_payload(test_case_id: str, ctx: ResolvedContext) -> JSONResponse:
+    test_case = get_test_case(
+        test_case_id,
+        workspace_id=_active_workspace_id(ctx),
+        user_id=ctx.user.id,
+    )
     if test_case is None:
         return error_response(404, "TEST_CASE_NOT_FOUND", f"Test case not found: {test_case_id}")
     return JSONResponse(
@@ -136,7 +147,7 @@ def _test_case_response_payload(test_case_id: str) -> JSONResponse:
 @router.post("/adaptor-test-cases")
 async def create_test_case_endpoint(
     request: Request,
-    _run_ctx: WorkflowRunContext,
+    run_ctx: WorkflowRunContext,
     workflow: str = Form(...),
     target_node_id: str = Form(...),
     files: UploadFilesParam = None,
@@ -175,7 +186,13 @@ async def create_test_case_endpoint(
     input_identities = _input_identities_from_request(files, file_ids)
 
     try:
-        test_case = create_test_case(definition, target_node_id, input_identities)
+        test_case = create_test_case(
+            definition,
+            target_node_id,
+            input_identities,
+            workspace_id=_active_workspace_id(run_ctx),
+            user_id=run_ctx.user.id,
+        )
     except ValueError as exc:
         await cleanup_uploaded_files(uploaded_files, settings)
         return error_response(400, "EMPTY_ANCESTOR_CLOSURE", str(exc))
@@ -210,12 +227,21 @@ async def create_test_case_endpoint(
         scoped_connections.append(WorkflowConnection(source=last_ancestor_id, target="end_1"))
 
     scope_workflow = WorkflowDefinition(nodes=scoped_nodes, connections=scoped_connections)
-    test_case.status = TestCaseStatus.running_upstream
+    running_test_case = set_test_case_status(
+        test_case.test_case_id,
+        TestCaseStatus.running_upstream,
+        workspace_id=_active_workspace_id(run_ctx),
+        user_id=run_ctx.user.id,
+    )
+    if running_test_case is None:
+        await cleanup_uploaded_files(uploaded_files, settings)
+        return error_response(404, "TEST_CASE_NOT_FOUND", "Test case expired before execution")
+    test_case = running_test_case
 
     dag_scheduler = request.app.state.dag_scheduler
     engine_client = request.app.state.engine_client
     auth_resolver = getattr(request.app.state, "auth_resolver", None)
-    provider_resolver = _provider_resolver_for_request(request, _run_ctx.workspace_id)
+    provider_resolver = _provider_resolver_for_request(request, _active_workspace_id(run_ctx))
 
     input_bindings: dict[str, TaskInputFile] = {}
     for node in scoped_nodes:
@@ -248,6 +274,8 @@ async def create_test_case_endpoint(
                         test_case.test_case_id,
                         node_id,
                         "completed",
+                        workspace_id=_active_workspace_id(run_ctx),
+                        user_id=run_ctx.user.id,
                         output=output,
                     )
 
@@ -257,10 +285,16 @@ async def create_test_case_endpoint(
                         test_case.test_case_id,
                         node_id,
                         "failed",
+                        workspace_id=_active_workspace_id(run_ctx),
+                        user_id=run_ctx.user.id,
                         error={"message": "not completed"},
                     )
 
-            finalize_test_case(test_case.test_case_id)
+            finalize_test_case(
+                test_case.test_case_id,
+                workspace_id=_active_workspace_id(run_ctx),
+                user_id=run_ctx.user.id,
+            )
         except Exception as exc:  # noqa: BLE001
             logger.error(
                 "Test Case upstream execution failed for %s: %s",
@@ -273,9 +307,15 @@ async def create_test_case_endpoint(
                         test_case.test_case_id,
                         node_id,
                         "failed",
+                        workspace_id=_active_workspace_id(run_ctx),
+                        user_id=run_ctx.user.id,
                         error={"message": str(exc)},
                     )
-            finalize_test_case(test_case.test_case_id)
+            finalize_test_case(
+                test_case.test_case_id,
+                workspace_id=_active_workspace_id(run_ctx),
+                user_id=run_ctx.user.id,
+            )
 
     asyncio.get_running_loop().create_task(_execute_upstream())
 
@@ -301,18 +341,22 @@ async def create_test_case_endpoint(
 @router.get("/adaptor-test-cases/{test_case_id}")
 async def get_test_case_endpoint(
     test_case_id: str,
-    _run_ctx: WorkflowRunContext,
+    run_ctx: WorkflowRunContext,
 ) -> JSONResponse:
-    return _test_case_response_payload(test_case_id)
+    return _test_case_response_payload(test_case_id, run_ctx)
 
 
 @router.get("/adaptor-test-cases/{test_case_id}/nodes/{node_id}/result")
 async def get_node_result_endpoint(
     test_case_id: str,
     node_id: str,
-    _run_ctx: WorkflowRunContext,
+    run_ctx: WorkflowRunContext,
 ) -> JSONResponse:
-    test_case = get_test_case(test_case_id)
+    test_case = get_test_case(
+        test_case_id,
+        workspace_id=_active_workspace_id(run_ctx),
+        user_id=run_ctx.user.id,
+    )
     if test_case is None:
         return error_response(404, "TEST_CASE_NOT_FOUND", f"Test case not found: {test_case_id}")
 
@@ -327,7 +371,12 @@ async def get_node_result_endpoint(
             f"Node status is '{node_info.status}', not 'completed'",
         )
 
-    output = get_node_output(test_case_id, node_id)
+    output = get_node_output(
+        test_case_id,
+        node_id,
+        workspace_id=_active_workspace_id(run_ctx),
+        user_id=run_ctx.user.id,
+    )
     if output is None:
         return error_response(404, "OUTPUT_NOT_FOUND", f"Output not found for node: {node_id}")
 
@@ -342,9 +391,13 @@ async def get_node_result_endpoint(
 @router.delete("/adaptor-test-cases/{test_case_id}")
 async def delete_test_case_endpoint(
     test_case_id: str,
-    _run_ctx: WorkflowRunContext,
+    run_ctx: WorkflowRunContext,
 ) -> JSONResponse:
-    deleted = delete_test_case(test_case_id)
+    deleted = delete_test_case(
+        test_case_id,
+        workspace_id=_active_workspace_id(run_ctx),
+        user_id=run_ctx.user.id,
+    )
     if not deleted:
         return error_response(404, "TEST_CASE_NOT_FOUND", f"Test case not found: {test_case_id}")
 
@@ -354,11 +407,15 @@ async def delete_test_case_endpoint(
 @router.post("/adaptor-test-cases/{test_case_id}/executions")
 async def create_execution_endpoint(
     test_case_id: str,
-    _run_ctx: WorkflowRunContext,
+    run_ctx: WorkflowRunContext,
     body: ExecutionBodyParam | None = None,
 ) -> JSONResponse:
     payload = body or {}
-    test_case = get_test_case(test_case_id)
+    test_case = get_test_case(
+        test_case_id,
+        workspace_id=_active_workspace_id(run_ctx),
+        user_id=run_ctx.user.id,
+    )
     if test_case is None:
         return error_response(404, "TEST_CASE_NOT_FOUND", f"Test case not found: {test_case_id}")
 
@@ -372,7 +429,11 @@ async def create_execution_endpoint(
             f"Test case status is '{test_case.status.value}', must be 'ready'",
         )
 
-    definition = get_test_case_definition(test_case_id)
+    definition = get_test_case_definition(
+        test_case_id,
+        workspace_id=_active_workspace_id(run_ctx),
+        user_id=run_ctx.user.id,
+    )
     if definition is None:
         return error_response(404, "TEST_CASE_NOT_FOUND", f"Test case not found: {test_case_id}")
 
@@ -383,7 +444,11 @@ async def create_execution_endpoint(
     bindings_raw = payload.get("bindings", [])
     bindings = bindings_raw if isinstance(bindings_raw, list) else []
 
-    completed = get_completed_outputs(test_case_id)
+    completed = get_completed_outputs(
+        test_case_id,
+        workspace_id=_active_workspace_id(run_ctx),
+        user_id=run_ctx.user.id,
+    )
     try:
         resolved = resolve_adaptor_inputs(
             definition=definition,
@@ -413,6 +478,8 @@ async def create_execution_endpoint(
             input_mode if isinstance(input_mode, str) else "all_upstream",
             bindings,
             binding_result,
+            workspace_id=_active_workspace_id(run_ctx),
+            user_id=run_ctx.user.id,
         )
         return JSONResponse(
             status_code=200,
@@ -438,6 +505,8 @@ async def create_execution_endpoint(
             str(input_mode),
             bindings,
             resolution_result,
+            workspace_id=_active_workspace_id(run_ctx),
+            user_id=run_ctx.user.id,
         )
         return JSONResponse(
             status_code=200,
@@ -496,6 +565,8 @@ async def create_execution_endpoint(
         input_mode if isinstance(input_mode, str) else "all_upstream",
         bindings,
         result,
+        workspace_id=_active_workspace_id(run_ctx),
+        user_id=run_ctx.user.id,
     )
 
     output_payload = result["output"]
@@ -524,9 +595,13 @@ async def create_execution_endpoint(
 async def get_execution_endpoint(
     test_case_id: str,
     execution_id: str,
-    _run_ctx: WorkflowRunContext,
+    run_ctx: WorkflowRunContext,
 ) -> JSONResponse:
-    entry = get_execution(execution_id)
+    entry = get_execution(
+        execution_id,
+        workspace_id=_active_workspace_id(run_ctx),
+        user_id=run_ctx.user.id,
+    )
     if entry is None:
         return error_response(404, "EXECUTION_NOT_FOUND", f"Execution not found: {execution_id}")
 

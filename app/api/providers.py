@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import json
-from typing import Annotated, Any
+from datetime import datetime, timezone
+from typing import Annotated, Any, Literal
 from urllib.parse import urlsplit
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 
 from app.api.auth import ResolvedContext, get_authenticated_context, require_workspace_capability
 from app.api.provider_response_registry import provider_response_enrichers
@@ -16,6 +17,7 @@ from app.errors import AppError
 from app.models.auth import AuthenticatedContext
 from app.providers.discover import ProviderAuthenticationError, discover_provider
 from app.providers.models import (
+    ApiProtocol,
     ApiStyle,
     ModelProviderCreate,
     ModelProviderRow,
@@ -26,6 +28,7 @@ from app.providers.models import (
     ProviderType,
     RegisteredAuthType,
     ResponseFormat,
+    normalize_llm_api_protocol,
     normalize_provider_protocol,
 )
 from app.providers.store import ProviderDefaultRequiredError, ProviderStore
@@ -78,12 +81,19 @@ class ProviderCreateRequest(BaseModel):
     base_url: str
     api_style: ApiStyle | None = None
     api_version: str | None = None
+    api_protocol: ApiProtocol | None = None
     api_key: str | None = None
+    model_id: str | None = None
+    model_display_name: str | None = None
+    model_context_window: int | None = None
+    model_max_tokens: int | None = None
+    model_reasoning: bool | None = None
     auth_type: RegisteredAuthType = "none"
     auth_config: dict[str, Any] | None = None
     response_format: ResponseFormat = ResponseFormat.node_output
     is_enabled: bool = True
     is_default: bool = False
+    is_chatbot_default: bool = False
     extra_config: dict[str, Any] | None = None
     health_url: str | None = None
 
@@ -114,12 +124,14 @@ class ProviderCreateRequest(BaseModel):
 
     @model_validator(mode="after")
     def validate_protocol(self) -> "ProviderCreateRequest":
+        self.api_protocol = normalize_llm_api_protocol(self.provider_type, self.api_protocol)
         self.api_style, self.api_version = normalize_provider_protocol(
             self.provider_type,
             self.api_style,
             self.api_version,
             default_openai_style=True,
         )
+        _validate_llm_api_base_url(self.base_url, self.provider_type)
         return self
 
 
@@ -131,12 +143,19 @@ class ProviderUpdateRequest(BaseModel):
     base_url: str | None = None
     api_style: ApiStyle | None = None
     api_version: str | None = None
+    api_protocol: ApiProtocol | None = None
     api_key: str | None = None
+    model_id: str | None = None
+    model_display_name: str | None = None
+    model_context_window: int | None = None
+    model_max_tokens: int | None = None
+    model_reasoning: bool | None = None
     auth_type: RegisteredAuthType | None = None
     auth_config: dict[str, Any] | None = None
     response_format: str | None = None
     is_enabled: bool | None = None
     is_default: bool | None = None
+    is_chatbot_default: bool | None = None
     extra_config: dict[str, Any] | None = None
     health_url: str | None = None
 
@@ -184,12 +203,20 @@ class ProviderResponse(BaseModel):
     base_url: str
     api_style: str | None = None
     api_version: str | None = None
+    api_protocol: str | None = None
+    model_id: str | None = None
+    model_display_name: str | None = None
+    model_context_window: int | None = None
+    model_max_tokens: int | None = None
+    model_reasoning: bool | None = None
     has_api_key: bool
     auth_type: str
     auth_config_public: dict[str, str] | None = None  # non-secret auth_config fields
     env_config: dict[str, str] | None = None  # read-only env-sourced config for display
     is_enabled: bool
     is_default: bool
+    is_chatbot_default: bool
+    chatbot_ready: bool = False
     response_format: str
     config_schema: dict[str, Any] | None = None  # parsed from SQLite JSON string
     parameter_schema: dict[str, Any] | None = None  # alias for config_schema
@@ -240,12 +267,20 @@ class ProviderResponse(BaseModel):
             base_url=row.base_url,
             api_style=_str_val(row.api_style) if row.api_style is not None else None,
             api_version=row.api_version,
+            api_protocol=_str_val(row.api_protocol) if row.api_protocol is not None else None,
+            model_id=row.model_id,
+            model_display_name=row.model_display_name,
+            model_context_window=row.model_context_window,
+            model_max_tokens=row.model_max_tokens,
+            model_reasoning=row.model_reasoning,
             has_api_key=row.api_key is not None,
             auth_type=auth_type_str,
             auth_config_public=auth_config_public,
             env_config=env_config,
             is_enabled=row.is_enabled,
             is_default=row.is_default,
+            is_chatbot_default=row.is_chatbot_default,
+            chatbot_ready=row.chatbot_ready,
             response_format=_str_val(row.response_format),
             config_schema=parsed_schema,
             parameter_schema=parsed_schema,
@@ -271,6 +306,32 @@ def _mutable_provider(
     raise HTTPException(status_code=404, detail="Provider not found")
 
 
+def _validation_detail(exc: ValidationError) -> str:
+    """First pydantic error as loc + msg; never includes the rejected input value."""
+
+    for err in exc.errors():
+        loc = ".".join(str(part) for part in err.get("loc", ()))
+        msg = str(err.get("msg", "Invalid value"))
+        return f"{loc}: {msg}" if loc else msg
+    return "Invalid provider payload"
+
+
+def _validation_http_error(exc: ValidationError) -> HTTPException:
+    return HTTPException(status_code=422, detail=_validation_detail(exc))
+
+
+def _validate_llm_api_base_url(base_url: str, provider_type: ProviderType) -> None:
+    if provider_type != ProviderType.llm_api:
+        return
+    parsed = urlsplit(base_url)
+    if parsed.query:
+        raise ValueError("llm_api base_url cannot include a query string")
+    if parsed.fragment:
+        raise ValueError("llm_api base_url cannot include a fragment")
+    if parsed.path.rstrip("/").endswith(("/chat/completions", "/responses", "/messages")):
+        raise ValueError("llm_api base_url cannot include a protocol resource path")
+
+
 def _active_workspace_id(context: ResolvedContext) -> str:
     if context.workspace_id is None:
         raise HTTPException(status_code=404, detail="Workspace not found")
@@ -287,12 +348,41 @@ class ModelTestResult(BaseModel):
     error: str | None = None
 
 
-class TestConnectionResponse(BaseModel):
-    status: str  # "healthy" | "unhealthy" | "no_health_url" | "no_models"
+class ProviderDiagnosticResponse(BaseModel):
+    operation: Literal["provider.test", "provider.health", "provider.model.test"]
+    target_type: Literal["provider", "model"]
+    target_id: str
+    target_name: str | None = None
+    status: Literal["healthy", "unhealthy", "unavailable"]
     latency_ms: int | None = None
+    error_code: str | None = None
     error: str | None = None
+    checked_at: str
     details: dict[str, Any] | None = None
-    model_results: list[ModelTestResult] | None = None  # VLM providers: per-model results
+    model_results: list[ModelTestResult] | None = None
+    provider_id: str
+    provider_name: str
+    model_response: str | None = None
+
+
+TestConnectionResponse = ProviderDiagnosticResponse
+
+
+def _diagnostic_status(status: str) -> Literal["healthy", "unhealthy", "unavailable"]:
+    if status == "healthy":
+        return "healthy"
+    if status in {"no_health_url", "no_models"}:
+        return "unavailable"
+    return "unhealthy"
+
+
+def _diagnostic_error_code(status: str, error: str | None) -> str | None:
+    if status == "healthy" and error is None:
+        return None
+    return {
+        "no_health_url": "PROVIDER_HEALTH_URL_MISSING",
+        "no_models": "PROVIDER_MODELS_UNAVAILABLE",
+    }.get(status, "PROVIDER_DIAGNOSTIC_FAILED")
 
 
 class DiscoverResponse(BaseModel):
@@ -349,7 +439,10 @@ async def create_provider(
 
     workspace_id = _active_workspace_id(permission)
     payload.update(scope=ProviderScope.workspace, workspace_id=workspace_id)
-    data = ModelProviderCreate(**payload)
+    try:
+        data = ModelProviderCreate(**payload)
+    except ValidationError as exc:
+        raise _validation_http_error(exc) from exc
     try:
         with assert_workspace_active(workspace_id):
             row = store.create_provider(data)
@@ -397,8 +490,16 @@ async def update_provider(
     permission: ProviderManageDep,
 ) -> ProviderResponse:
     """Partially update a provider. Only supplied fields are changed."""
-    _mutable_provider(store, provider_id, _active_workspace_id(permission))
-    data = ModelProviderUpdate(**body.model_dump(exclude_unset=True))
+    existing = _mutable_provider(store, provider_id, _active_workspace_id(permission))
+    if body.base_url is not None:
+        try:
+            _validate_llm_api_base_url(body.base_url, existing.provider_type)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+    try:
+        data = ModelProviderUpdate(**body.model_dump(exclude_unset=True))
+    except ValidationError as exc:
+        raise _validation_http_error(exc) from exc
     try:
         row = store.update_provider(provider_id, data)
     except ValueError as exc:
@@ -460,9 +561,15 @@ async def test_connection(
 
     result = await check_provider_health(row, models=models, auth_resolver=auth_resolver)
     return TestConnectionResponse(
-        status=result.status,
+        operation="provider.test",
+        target_type="provider",
+        target_id=result.provider_id,
+        target_name=result.provider_name,
+        status=_diagnostic_status(result.status),
         latency_ms=result.latency_ms,
+        error_code=_diagnostic_error_code(result.status, result.error),
         error=result.error,
+        checked_at=result.checked_at,
         details=result.details,
         model_results=[
             ModelTestResult(
@@ -474,6 +581,8 @@ async def test_connection(
             )
             for r in (result.model_results or [])
         ],
+        provider_id=result.provider_id,
+        provider_name=result.provider_name,
     )
 
 
@@ -543,6 +652,62 @@ async def set_default(
 
 
 # ---------------------------------------------------------------------------
+# Readiness test endpoint
+# ---------------------------------------------------------------------------
+
+
+ReadinessStepStatus = Literal["pass", "fail", "skipped"]
+
+
+class ReadinessStepResult(BaseModel):
+    name: str
+    status: ReadinessStepStatus
+    detail: str | None = None
+
+
+class ReadinessTestResponse(BaseModel):
+    provider_id: str
+    chatbot_ready: bool
+    steps: list[ReadinessStepResult]
+
+
+@router.post(
+    "/{provider_id}/readiness-test",
+    response_model=ReadinessTestResponse,
+)
+async def run_readiness_test(
+    provider_id: str,
+    store: ProviderStoreDep,
+    _context: AuthenticatedContextDep,
+    permission: ProviderManageDep,
+) -> ReadinessTestResponse:
+    """Run the 6-step server-side readiness probe for an llm_api Provider."""
+
+    workspace_id = _active_workspace_id(permission)
+    row = _mutable_provider(store, provider_id, workspace_id)
+    if row.provider_type != ProviderType.llm_api:
+        raise HTTPException(
+            status_code=400, detail="Readiness test applies only to llm_api providers"
+        )
+
+    from app.providers.auth import AuthResolver
+    from app.providers.readiness import run_readiness_probe
+
+    auth = await AuthResolver(fernet=store.fernet).resolve(row)
+    result = await run_readiness_probe(row, auth)
+    if not store.set_chatbot_ready(provider_id, result.chatbot_ready, workspace_id):
+        raise HTTPException(status_code=404, detail="Provider not found")
+    return ReadinessTestResponse(
+        provider_id=result.provider_id,
+        chatbot_ready=result.chatbot_ready,
+        steps=[
+            ReadinessStepResult(name=step.name, status=step.status, detail=step.detail)
+            for step in result.steps
+        ],
+    )
+
+
+# ---------------------------------------------------------------------------
 # Parameter Schema endpoint
 # ---------------------------------------------------------------------------
 
@@ -591,14 +756,7 @@ async def update_parameter_schema(
 # ---------------------------------------------------------------------------
 
 
-class HealthCheckResponse(BaseModel):
-    provider_id: str
-    provider_name: str
-    status: str  # "healthy" | "unhealthy" | "no_health_url"
-    latency_ms: int | None = None
-    error: str | None = None
-    checked_at: str
-    details: dict[str, Any] | None = None
+HealthCheckResponse = ProviderDiagnosticResponse
 
 
 @router.post("/{provider_id}/health-check", response_model=HealthCheckResponse)
@@ -623,13 +781,28 @@ async def health_check_provider(
 
     result = await check_provider_health(row, models=models, auth_resolver=auth_resolver)
     return HealthCheckResponse(
+        operation="provider.health",
+        target_type="provider",
+        target_id=result.provider_id,
+        target_name=result.provider_name,
         provider_id=result.provider_id,
         provider_name=result.provider_name,
-        status=result.status,
+        status=_diagnostic_status(result.status),
         latency_ms=result.latency_ms,
+        error_code=_diagnostic_error_code(result.status, result.error),
         error=result.error,
         checked_at=result.checked_at,
         details=result.details,
+        model_results=[
+            ModelTestResult(
+                model_id=item.model_id,
+                display_name=item.display_name,
+                status=item.status,
+                latency_ms=item.latency_ms,
+                error=item.error,
+            )
+            for item in (result.model_results or [])
+        ],
     )
 
 
@@ -693,11 +866,7 @@ async def remove_model_from_provider(
         raise HTTPException(status_code=404, detail="Model not found")
 
 
-class TestModelResponse(BaseModel):
-    status: str  # "ok" | "failed"
-    latency_ms: int | None = None
-    error: str | None = None
-    model_response: str | None = None
+TestModelResponse = ProviderDiagnosticResponse
 
 
 @router.post("/{provider_id}/models/{model_id}/test", response_model=TestModelResponse)
@@ -728,10 +897,21 @@ async def test_model(
         timeout=30.0,
     )
     detail = result.model_results[0] if result.model_results else None
+    healthy = detail is not None and detail.status == "ok"
+    checked_at = result.checked_at or datetime.now(timezone.utc).isoformat()
     return TestModelResponse(
-        status="ok" if detail is not None and detail.status == "ok" else "failed",
+        operation="provider.model.test",
+        target_type="model",
+        target_id=model.id,
+        target_name=model.display_name,
+        status="healthy" if healthy else "unhealthy",
         latency_ms=detail.latency_ms if detail is not None else result.latency_ms,
+        error_code=None if healthy else "PROVIDER_MODEL_TEST_FAILED",
         error=detail.error if detail is not None else result.error,
+        checked_at=checked_at,
+        details=None,
+        provider_id=row.id,
+        provider_name=row.name,
     )
 
 

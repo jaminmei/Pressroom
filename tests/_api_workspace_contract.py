@@ -60,6 +60,39 @@ def install_authenticated_workspace(
         lambda: _MembershipSession(role),
     )
 
+    # Older API tests deliberately replace the authentication and membership
+    # database lookups with the deterministic context above. Durable File
+    # quota accounting additionally locks the real workspace row, so create
+    # that row lazily in whichever isolated database the test configures.
+    from app.models.db.workspace import Workspace
+    from app.services.file_store import FileStore
+
+    original_put_with_quota = FileStore.put_with_quota
+
+    def put_with_test_workspace(
+        store: FileStore,
+        record: object,
+        *,
+        quota_bytes: int,
+    ) -> None:
+        record_workspace_id = getattr(record, "workspace_id", None)
+        if isinstance(record_workspace_id, str):
+            with store._session_factory() as session:  # noqa: SLF001 - test harness
+                if session.get(Workspace, record_workspace_id) is None:
+                    session.add(
+                        Workspace(
+                            id=record_workspace_id,
+                            name="Unit API Workspace",
+                            slug=None,
+                            description=None,
+                            owner_user_id=None,
+                        )
+                    )
+                    session.commit()
+        original_put_with_quota(store, record, quota_bytes=quota_bytes)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(FileStore, "put_with_quota", put_with_test_workspace)
+
 
 def remove_authenticated_workspace(app: FastAPI) -> None:
     app.dependency_overrides.pop(get_authenticated_context, None)

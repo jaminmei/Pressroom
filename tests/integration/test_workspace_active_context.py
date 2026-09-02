@@ -104,9 +104,19 @@ def test_audit_light_remains_owner_admin_only(
     editor_response = editor.client.get(f"/api/workspaces/{workspace_id}/audit-events")
 
     assert owner_response.status_code == 200
-    assert owner_response.json() == {"items": [], "total": 0}
+    assert owner_response.json() == {
+        "implemented": False,
+        "status": "not_implemented",
+        "items": [],
+        "total": 0,
+    }
     assert admin_response.status_code == 200
-    assert admin_response.json() == {"items": [], "total": 0}
+    assert admin_response.json() == {
+        "implemented": False,
+        "status": "not_implemented",
+        "items": [],
+        "total": 0,
+    }
     assert editor_response.status_code == 403
 
 

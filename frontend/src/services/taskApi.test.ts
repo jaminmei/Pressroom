@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { apiClient } from "@/services/api";
-import { getTaskHistory, getTaskStatus, submitBlockSelection } from "@/services/taskApi";
+import { getTaskHistory, getTaskStatus } from "@/services/taskApi";
 
 vi.mock("@/services/api", () => ({
   apiClient: {
@@ -23,32 +23,6 @@ describe("taskApi", () => {
 
     expect(apiClient.get).toHaveBeenCalledWith("/tasks/task_1");
     expect(response.status).toBe("running");
-  });
-
-  it("submits block selection input", async () => {
-    vi.mocked(apiClient.post).mockResolvedValue({
-      data: {
-        task_id: "task_1",
-        node_id: "block_selector_1",
-        status: "running"
-      }
-    } as never);
-
-    await submitBlockSelection("task_1", "block_selector_1", {
-      input_type: "block_selection",
-      payload: {
-        source_image_id: "img_001",
-        selected_blocks: []
-      }
-    });
-
-    expect(apiClient.post).toHaveBeenCalledWith("/tasks/task_1/nodes/block_selector_1/input", {
-      input_type: "block_selection",
-      payload: {
-        source_image_id: "img_001",
-        selected_blocks: []
-      }
-    });
   });
 
   it("loads recent task history with query params", async () => {

@@ -186,7 +186,7 @@ async def test_worker_health_exposes_required_and_missing_queues(monkeypatch) ->
         }
 
     monkeypatch.setattr(health_api, "check_celery_health", _health)
-    payload = await health_api.get_worker_health()
+    payload = await health_api.get_worker_health(None)
 
     assert payload["mode"] == "queue"
     assert payload["workers"]["required_queues"] == list(REQUIRED_CELERY_QUEUES)  # type: ignore[index]

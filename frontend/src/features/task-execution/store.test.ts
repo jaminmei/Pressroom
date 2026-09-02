@@ -7,7 +7,7 @@ describe("useTaskExecutionStore", () => {
     useTaskExecutionStore.getState().reset();
   });
 
-  it("updates task execution, reconnect, and block selection state", () => {
+  it("updates task execution and reconnect state", () => {
     const store = useTaskExecutionStore.getState();
     store.setTaskId("task_1");
     store.setTaskStatus("running");
@@ -19,22 +19,6 @@ describe("useTaskExecutionStore", () => {
     store.setWsWarning("連線中斷，重連中...");
     store.setManualReconnectAvailable(true);
     store.appendEventLog("SSE connected");
-    store.setBlockSelectionRequest({
-      node_id: "block_selector_1",
-      node_type: "processor/block_selector",
-      input_type: "block_selection",
-      payload: {
-        source_image: {
-          image_id: "img_001",
-          page_number: 1,
-          width: 1280,
-          height: 720,
-          preview_url: "/preview"
-        },
-        blocks: []
-      }
-    });
-
     const state = useTaskExecutionStore.getState();
     expect(state.currentTaskId).toBe("task_1");
     expect(state.taskStatus).toBe("running");
@@ -46,7 +30,6 @@ describe("useTaskExecutionStore", () => {
     expect(state.manualReconnectAvailable).toBe(true);
     expect(state.eventLogs).toHaveLength(1);
     expect(state.eventLogs[0]?.message).toBe("SSE connected");
-    expect(state.blockSelectionRequest?.node_id).toBe("block_selector_1");
   });
 
   it("resets to initial state", () => {
@@ -70,6 +53,5 @@ describe("useTaskExecutionStore", () => {
     expect(state.wsConnected).toBe(false);
     expect(state.wsWarning).toBeNull();
     expect(state.manualReconnectAvailable).toBe(false);
-    expect(state.blockSelectionRequest).toBeNull();
   });
 });

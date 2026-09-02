@@ -106,7 +106,6 @@ export function useWebSocket({ taskId, enabled = true, onTaskFinished }: UseWebS
   const updateNodeStatus = useTaskExecutionStore((state) => state.updateNodeStatus);
   const batchUpdateNodeStatuses = useTaskExecutionStore((state) => state.batchUpdateNodeStatuses);
   const appendEventLog = useTaskExecutionStore((state) => state.appendEventLog);
-  const setBlockSelectionRequest = useTaskExecutionStore((state) => state.setBlockSelectionRequest);
   const setWsWarning = useTaskExecutionStore((state) => state.setWsWarning);
   const setManualReconnectAvailable = useTaskExecutionStore((state) => state.setManualReconnectAvailable);
   const setWorkflowPaused = useTaskExecutionStore((state) => state.setWorkflowPaused);
@@ -194,7 +193,6 @@ export function useWebSocket({ taskId, enabled = true, onTaskFinished }: UseWebS
     const finishTask = (status: TaskStatus) => {
       if (terminalStatuses.has(status) && isCurrentTaskContext()) {
         setTaskStatus(status);
-        setBlockSelectionRequest(null);
         useLiveStatusStore.getState().patchStatus(taskId, status);
         closeStream();
         cleanupReconnectTimer();
@@ -498,7 +496,6 @@ export function useWebSocket({ taskId, enabled = true, onTaskFinished }: UseWebS
     enabled,
     onTaskFinished,
     appendEventLog,
-    setBlockSelectionRequest,
     setManualReconnectAvailable,
     setProgress,
     setWsConnected,

@@ -41,15 +41,25 @@ export interface EngineListResponse {
 }
 
 export interface ProviderHealthResult {
+  operation?: 'provider.health';
+  target_type?: 'provider';
+  target_id?: string;
+  target_name?: string | null;
   provider_id: string;
   provider_name: string;
-  status: 'healthy' | 'unhealthy' | 'unknown';
+  status: 'healthy' | 'unhealthy' | 'unavailable';
   latency_ms: number | null;
+  error_code?: string | null;
   error: string | null;
   checked_at: string;
 }
 
 export interface EngineHealthResponse {
+  operation: 'engine.health';
+  status: 'healthy' | 'unhealthy' | 'unavailable';
+  error_code: string | null;
+  error: string | null;
+  checked_at: string;
   category: string;
   providers: ProviderHealthResult[];
   healthy_count: number;

@@ -151,10 +151,10 @@ export default function ModelToggleList({
                   <Typography.Text>{model.display_name}</Typography.Text>
                   {testResult && (
                     <Tag
-                      color={testResult.status === "ok" ? "success" : "error"}
+                      color={testResult.status === "healthy" ? "success" : "error"}
                       style={{ marginLeft: 8 }}
                     >
-                      {testResult.status === "ok"
+                      {testResult.status === "healthy"
                         ? `${testResult.latency_ms}ms`
                         : t("common:statuses.failed")}
                     </Tag>

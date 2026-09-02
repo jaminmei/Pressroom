@@ -92,6 +92,7 @@ def test_source_and_pressroom_workflows_have_disjoint_job_sets() -> None:
     pressroom_jobs = _workflow_jobs(REPOSITORY / PRESSROOM_WORKFLOW_SOURCE)
 
     assert source_jobs == {
+        "cli-cross-platform",
         "public-boundary",
         "python-quality",
         "dependency-audit",
@@ -118,6 +119,87 @@ def test_source_and_pressroom_workflows_have_disjoint_job_sets() -> None:
     assert "actions/deploy-pages@" not in source_workflow
     source = yaml.load(source_workflow, Loader=yaml.BaseLoader)
     assert "website-quality" in source["jobs"]["publish-pressroom"]["needs"]
+
+
+def test_source_release_sensitivity_findings_require_manual_publish() -> None:
+    workflow_path = REPOSITORY / ".github/workflows/ci.yml"
+    workflow_text = workflow_path.read_text(encoding="utf-8")
+    workflow = yaml.load(workflow_text, Loader=yaml.BaseLoader)
+    jobs = workflow["jobs"]
+    llm_review = jobs["public-release-llm-review"]
+    publish = jobs["publish-pressroom"]
+
+    assert workflow["on"]["workflow_dispatch"] == {}
+    assert "workflow_dispatch" not in llm_review["if"]
+    assert "github.event_name == 'push'" in llm_review["if"]
+    assert "refs/tags/v" in llm_review["if"]
+    assert llm_review["permissions"] == {"contents": "read"}
+    assert llm_review["outputs"] == {
+        "review_required": "${{ steps.review-result.outputs.review_required }}",
+        "finding_count": "${{ steps.review-result.outputs.finding_count }}",
+        "unactionable_count": "${{ steps.review-result.outputs.unactionable_count }}",
+        "report_digest": "${{ steps.review-result.outputs.report_digest }}",
+    }
+    review_step = next(step for step in llm_review["steps"] if step.get("id") == "review-result")
+    assert '--github-output "$GITHUB_OUTPUT"' in review_step["run"]
+    assert "--sanitized-report" in review_step["run"]
+    assert "summarize_ocr_failure.py" in review_step["run"]
+    assert review_step["run"].count("summarize_ocr_failure.py") == 1
+    assert 'exit "$ocr_exit_code"' in review_step["run"]
+    diagnostic_step = next(
+        step
+        for step in llm_review["steps"]
+        if step.get("name") == "Upload sanitized LLM failure diagnostic"
+    )
+    assert diagnostic_step["if"] == "failure()"
+    assert diagnostic_step["with"]["if-no-files-found"] == "ignore"
+    assert "release-sensitivity-diagnostic.json" in diagnostic_step["with"]["path"]
+    assert "always()" in publish["if"]
+    assert "review_required != 'true'" in publish["if"]
+    assert "release-sensitivity-approval" not in workflow_text
+    assert "pressroom-release-review" not in workflow_text
+
+
+def test_manual_pressroom_publish_validates_review_before_using_sync_app() -> None:
+    workflow_path = REPOSITORY / ".github/workflows/publish-pressroom.yml"
+    workflow_text = workflow_path.read_text(encoding="utf-8")
+    workflow = yaml.load(workflow_text, Loader=yaml.BaseLoader)
+    dispatch = workflow["on"]["workflow_dispatch"]
+    job = workflow["jobs"]["publish"]
+    steps = job["steps"]
+    step_names = [step["name"] for step in steps]
+
+    assert set(dispatch["inputs"]) == {
+        "release_tag",
+        "report_digest",
+        "reviewed_all_findings",
+    }
+    assert workflow["permissions"] == {"actions": "read", "contents": "read"}
+    assert "environment" not in job
+    assert "refs/tags/${{ inputs.release_tag }}" in steps[0]["with"]["ref"]
+    assert "collaborators/${GITHUB_ACTOR}/permission" in workflow_text
+    assert "No successful tag CI run matches" in workflow_text
+    assert "LLM public-release sensitivity review" in workflow_text
+    assert "validate_pressroom_release_approval.py" in workflow_text
+    assert step_names.index("Validate manual review attestation") < step_names.index(
+        "Create scoped PressRoom installation token"
+    )
+    assert "PRESSROOM_SYNC_APP_ID" in workflow_text
+    assert "PRESSROOM_SYNC_APP_PRIVATE_KEY" in workflow_text
+
+    source = yaml.load(
+        (REPOSITORY / ".github/workflows/ci.yml").read_text(encoding="utf-8"),
+        Loader=yaml.BaseLoader,
+    )
+    automatic_steps = {step["name"]: step for step in source["jobs"]["publish-pressroom"]["steps"]}
+    manual_steps = {step["name"]: step for step in steps}
+    for shared_step in (
+        "Prepare the filtered PressRoom release tree",
+        "Create scoped PressRoom installation token",
+        "Prepare the PressRoom release branch",
+        "Create or update the PressRoom release pull request",
+    ):
+        assert manual_steps[shared_step] == automatic_steps[shared_step]
 
 
 def test_pressroom_pages_jobs_are_main_only_and_least_privilege() -> None:

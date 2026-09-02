@@ -10,12 +10,12 @@ import {
 
 vi.mock("@/services/api", () => ({
   apiClient: {
-    post: vi.fn(),
-    get: vi.fn()
+    get: vi.fn(),
+    post: vi.fn()
   }
 }));
 
-describe("authApi", () => {
+describe("session auth API", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
@@ -69,9 +69,7 @@ describe("authApi", () => {
   });
 
   it("logs out with POST /auth/logout", async () => {
-    vi.mocked(apiClient.post).mockResolvedValue({
-      data: { success: true }
-    } as never);
+    vi.mocked(apiClient.post).mockResolvedValue({ data: { success: true } } as never);
 
     const response = await logoutCurrentSession();
 

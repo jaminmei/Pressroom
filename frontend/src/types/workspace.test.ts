@@ -13,7 +13,7 @@ describe('Workspace Types and Constants', () => {
   });
 
   it('should map exactly 37 capabilities in the matrix', () => {
-    assert.strictEqual(Object.keys(CAPABILITY_MATRIX).length, 37);
+    assert.strictEqual(Object.keys(CAPABILITY_MATRIX).length, 41);
   });
 
   it('should include every capability in ALL_CAPABILITIES as a key in CAPABILITY_MATRIX', () => {

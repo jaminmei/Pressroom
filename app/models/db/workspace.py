@@ -16,6 +16,8 @@ WorkspaceDeletionCounts = TypedDict(
         "databases": int,
         "evaluation_runs": int,
         "task_runs": int,
+        "files": int,
+        "pending_storage_cleanups": int,
         "workspace_providers": int,
     },
 )

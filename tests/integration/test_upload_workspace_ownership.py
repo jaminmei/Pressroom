@@ -12,8 +12,10 @@ from app.models.workflow import WorkflowDefinition, WorkflowNode
 from app.services.file_store import FileStore, UploadedFileRecord
 from app.services.task_orchestrator import TaskOrchestrator
 
+pytestmark = pytest.mark.usefixtures("file_resource_database")
 
-def test_staged_file_is_bound_only_for_its_workspace_and_uploader() -> None:
+
+def test_staged_file_is_shared_inside_its_workspace() -> None:
     # Given
     store = FileStore()
     store.put(
@@ -32,7 +34,7 @@ def test_staged_file_is_bound_only_for_its_workspace_and_uploader() -> None:
     # When / Then
     assert store.get_owned("file_owned", "ws_a", "usr_a") is not None
     assert store.get_owned("file_owned", "ws_b", "usr_a") is None
-    assert store.get_owned("file_owned", "ws_a", "usr_b") is None
+    assert store.get_owned("file_owned", "ws_a", "usr_b") is not None
 
 
 def test_task_input_binding_is_immutable_and_carries_server_ownership() -> None:

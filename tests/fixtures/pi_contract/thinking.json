@@ -1,0 +1,35 @@
+{
+  "name": "thinking",
+  "description": "Thinking block followed by text in content-block order; visible thinking only, never reconstructed.",
+  "provenance": {
+    "sdk": { "@earendil-works/pi-coding-agent": "0.84.1" },
+    "sources": [
+      "pi_runtime/src/main.mjs (toJsonEvent delta-only message_update)",
+      "pi_runtime/node_modules/@earendil-works/pi-protocol/dist/schemas.d.ts (ThinkingContentSchema)"
+    ]
+  },
+  "raw_events": [
+    { "type": "agent_start" },
+    { "type": "turn_start" },
+    { "type": "message_start", "message": { "id": "a1", "role": "assistant", "content": [], "status": "streaming", "timestamp": 1 } },
+    { "type": "message_update", "assistantMessageEvent": { "type": "thinking_delta", "contentIndex": 0, "delta": "The user wants " } },
+    { "type": "message_update", "assistantMessageEvent": { "type": "thinking_delta", "contentIndex": 0, "delta": "a summary." } },
+    { "type": "message_update", "assistantMessageEvent": { "type": "text_delta", "contentIndex": 1, "delta": "Here is the summary." } },
+    { "type": "message_end", "message": { "id": "a1", "role": "assistant", "content": [{ "type": "thinking", "thinking": "The user wants a summary." }, { "type": "text", "text": "Here is the summary." }], "status": "complete", "stopReason": "stop", "timestamp": 2 } },
+    { "type": "turn_end" },
+    { "type": "agent_end" },
+    { "type": "agent_settled" }
+  ],
+  "projected_events": [
+    { "type": "agent_start" },
+    { "type": "turn_start" },
+    { "type": "message_start", "message": { "id": "a1", "role": "assistant", "content": [], "status": "streaming", "timestamp": 1 } },
+    { "type": "message_update", "assistantMessageEvent": { "type": "thinking_delta", "contentIndex": 0, "delta": "The user wants " } },
+    { "type": "message_update", "assistantMessageEvent": { "type": "thinking_delta", "contentIndex": 0, "delta": "a summary." } },
+    { "type": "message_update", "assistantMessageEvent": { "type": "text_delta", "contentIndex": 1, "delta": "Here is the summary." } },
+    { "type": "message_end", "message": { "id": "a1", "role": "assistant", "content": [{ "type": "thinking", "thinking": "The user wants a summary." }, { "type": "text", "text": "Here is the summary." }], "status": "complete", "stopReason": "stop", "timestamp": 2 } },
+    { "type": "turn_end" },
+    { "type": "agent_end" },
+    { "type": "agent_settled" }
+  ]
+}

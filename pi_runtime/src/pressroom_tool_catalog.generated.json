@@ -1,0 +1,1276 @@
+{
+  "catalog_version": "0.1",
+  "tools": [
+    {
+      "capability": "workflow.edit_draft",
+      "command": "pr workflow validate",
+      "description": "Validate a structured workflow definition in the current workspace.",
+      "exposure": "agent-default",
+      "label": "Validate workflow",
+      "name": "workflow_validate",
+      "operation": "workflow.validate",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "definition": {
+            "description": "Workflow definition JSON.",
+            "type": "object"
+          }
+        },
+        "required": [
+          "definition"
+        ],
+        "type": "object"
+      },
+      "requires_platform_approval": false
+    },
+    {
+      "capability": "workflow.view",
+      "command": "pr workflow list",
+      "description": "List workflows visible in the current PressRoom workspace.",
+      "exposure": "agent-default",
+      "label": "List workflows",
+      "name": "workflow_list",
+      "operation": "workflow.list",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "limit": {
+            "default": 20,
+            "description": "Number of workflows to return.",
+            "maximum": 200,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "page": {
+            "default": 1,
+            "description": "One-based result page.",
+            "maximum": 100000,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "query": {
+            "description": "Optional workflow name search.",
+            "maxLength": 2000,
+            "minLength": 1,
+            "type": "string"
+          },
+          "sort": {
+            "description": "Stable sort expression, for example updated_at:desc.",
+            "maxLength": 2000,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "requires_platform_approval": false
+    },
+    {
+      "capability": "workflow.view",
+      "command": "pr workflow get",
+      "description": "Get one workflow from the current workspace.",
+      "exposure": "agent-default",
+      "label": "Get workflow",
+      "name": "workflow_get",
+      "operation": "workflow.get",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "workflow_id": {
+            "description": "Workflow id.",
+            "maxLength": 2000,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "workflow_id"
+        ],
+        "type": "object"
+      },
+      "requires_platform_approval": false
+    },
+    {
+      "capability": "workflow.edit_draft",
+      "command": "pr workflow create",
+      "description": "Create a workflow from a structured definition after user approval.",
+      "exposure": "agent-confirmation",
+      "label": "Create workflow",
+      "name": "workflow_create",
+      "operation": "workflow.create",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "definition": {
+            "description": "Workflow definition JSON.",
+            "type": "object"
+          },
+          "description": {
+            "description": "Optional workflow description.",
+            "maxLength": 2000,
+            "minLength": 1,
+            "type": "string"
+          },
+          "name": {
+            "description": "Workflow name.",
+            "maxLength": 2000,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "definition"
+        ],
+        "type": "object"
+      },
+      "requires_platform_approval": true
+    },
+    {
+      "capability": "workflow.edit_draft",
+      "command": "pr workflow update",
+      "description": "Update workflow metadata or definition after user approval.",
+      "exposure": "agent-confirmation",
+      "label": "Update workflow",
+      "name": "workflow_update",
+      "operation": "workflow.update",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "base_version": {
+            "description": "Positive version number.",
+            "maximum": 1000000,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "clear_description": {
+            "description": "Clear the description.",
+            "type": "boolean"
+          },
+          "definition": {
+            "description": "Workflow definition JSON.",
+            "type": "object"
+          },
+          "description": {
+            "description": "New workflow description.",
+            "maxLength": 2000,
+            "minLength": 1,
+            "type": "string"
+          },
+          "name": {
+            "description": "New workflow name.",
+            "maxLength": 2000,
+            "minLength": 1,
+            "type": "string"
+          },
+          "workflow_id": {
+            "description": "Workflow id.",
+            "maxLength": 2000,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "workflow_id"
+        ],
+        "type": "object"
+      },
+      "requires_platform_approval": true
+    },
+    {
+      "capability": "workflow.view",
+      "command": "pr workflow version list",
+      "description": "List durable versions of a workflow.",
+      "exposure": "agent-default",
+      "label": "List workflow versions",
+      "name": "workflow_version_list",
+      "operation": "workflow.version.list",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "workflow_id": {
+            "description": "Workflow id.",
+            "maxLength": 2000,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "workflow_id"
+        ],
+        "type": "object"
+      },
+      "requires_platform_approval": false
+    },
+    {
+      "capability": "workflow.view",
+      "command": "pr workflow version get",
+      "description": "Get a durable workflow version.",
+      "exposure": "agent-default",
+      "label": "Get workflow version",
+      "name": "workflow_version_get",
+      "operation": "workflow.version.get",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "version": {
+            "description": "Positive version number.",
+            "maximum": 1000000,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "workflow_id": {
+            "description": "Workflow id.",
+            "maxLength": 2000,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "workflow_id",
+          "version"
+        ],
+        "type": "object"
+      },
+      "requires_platform_approval": false
+    },
+    {
+      "capability": "workflow.run",
+      "command": "pr workflow execute",
+      "description": "Execute a persisted workflow with user-selected workspace files after approval.",
+      "exposure": "agent-confirmation",
+      "label": "Execute workflow",
+      "name": "workflow_execute",
+      "operation": "workflow.execute",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "file_ids": {
+            "description": "Workspace file ids selected or uploaded by the user.",
+            "items": {
+              "description": "Resource id.",
+              "maxLength": 2000,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 100,
+            "type": "array"
+          },
+          "run_name": {
+            "description": "Optional run name.",
+            "maxLength": 2000,
+            "minLength": 1,
+            "type": "string"
+          },
+          "version": {
+            "description": "Positive version number.",
+            "maximum": 1000000,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "workflow_id": {
+            "description": "Workflow id.",
+            "maxLength": 2000,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "workflow_id"
+        ],
+        "type": "object"
+      },
+      "requires_platform_approval": true
+    },
+    {
+      "capability": "workflow.publish",
+      "command": "pr workflow publish",
+      "description": "Publish a workflow after user approval.",
+      "exposure": "agent-confirmation",
+      "label": "Publish workflow",
+      "name": "workflow_publish",
+      "operation": "workflow.publish",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "workflow_id": {
+            "description": "Workflow id.",
+            "maxLength": 2000,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "workflow_id"
+        ],
+        "type": "object"
+      },
+      "requires_platform_approval": true
+    },
+    {
+      "capability": "workflow.publish",
+      "command": "pr workflow delete",
+      "description": "Delete an unreferenced workflow after user approval.",
+      "exposure": "agent-confirmation",
+      "label": "Delete workflow",
+      "name": "workflow_delete",
+      "operation": "workflow.delete",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "workflow_id": {
+            "description": "Workflow id.",
+            "maxLength": 2000,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "workflow_id"
+        ],
+        "type": "object"
+      },
+      "requires_platform_approval": true
+    },
+    {
+      "capability": "workflow.publish",
+      "command": "pr workflow version restore",
+      "description": "Restore a workflow version after user approval.",
+      "exposure": "agent-confirmation",
+      "label": "Restore workflow version",
+      "name": "workflow_version_restore",
+      "operation": "workflow.version.restore",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "version": {
+            "description": "Positive version number.",
+            "maximum": 1000000,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "workflow_id": {
+            "description": "Workflow id.",
+            "maxLength": 2000,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "workflow_id",
+          "version"
+        ],
+        "type": "object"
+      },
+      "requires_platform_approval": true
+    },
+    {
+      "capability": "workflow.edit_draft+workflow.run",
+      "command": "pr workflow draft-run",
+      "description": "Execute a structured workflow draft with user-selected files after approval.",
+      "exposure": "agent-confirmation",
+      "label": "Run workflow draft",
+      "name": "workflow_draft_run",
+      "operation": "workflow.draft-run",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "definition": {
+            "description": "Workflow definition JSON.",
+            "type": "object"
+          },
+          "file_ids": {
+            "description": "Workspace file ids selected or uploaded by the user.",
+            "items": {
+              "description": "Resource id.",
+              "maxLength": 2000,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 100,
+            "type": "array"
+          },
+          "run_name": {
+            "description": "Run name.",
+            "maxLength": 2000,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "definition"
+        ],
+        "type": "object"
+      },
+      "requires_platform_approval": true
+    },
+    {
+      "capability": "workflow.edit_draft+workflow.run",
+      "command": "pr workflow node-run",
+      "description": "Execute one node from a structured workflow draft after approval.",
+      "exposure": "agent-confirmation",
+      "label": "Run draft node",
+      "name": "workflow_node_run",
+      "operation": "workflow.node-run",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "definition": {
+            "description": "Workflow definition JSON.",
+            "type": "object"
+          },
+          "file_ids": {
+            "description": "Workspace file ids selected or uploaded by the user.",
+            "items": {
+              "description": "Resource id.",
+              "maxLength": 2000,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 100,
+            "type": "array"
+          },
+          "node_id": {
+            "description": "Node id.",
+            "maxLength": 2000,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "definition",
+          "node_id"
+        ],
+        "type": "object"
+      },
+      "requires_platform_approval": true
+    },
+    {
+      "capability": "run.view",
+      "command": "pr run list",
+      "description": "List workflow runs in the current workspace.",
+      "exposure": "agent-default",
+      "label": "List runs",
+      "name": "run_list",
+      "operation": "run.list",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "limit": {
+            "default": 20,
+            "description": "Number of runs to return.",
+            "maximum": 200,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "page": {
+            "default": 1,
+            "description": "One-based result page.",
+            "maximum": 100000,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "status": {
+            "description": "Run status filter, or all.",
+            "maxLength": 2000,
+            "minLength": 1,
+            "type": "string"
+          },
+          "workflow_id": {
+            "description": "Workflow id.",
+            "maxLength": 2000,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "requires_platform_approval": false
+    },
+    {
+      "capability": "run.view",
+      "command": "pr run get",
+      "description": "Get workflow run metadata.",
+      "exposure": "agent-default",
+      "label": "Get run",
+      "name": "run_get",
+      "operation": "run.get",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "run_id": {
+            "description": "Workflow run id.",
+            "maxLength": 2000,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "run_id"
+        ],
+        "type": "object"
+      },
+      "requires_platform_approval": false
+    },
+    {
+      "capability": "run.view",
+      "command": "pr run wait",
+      "description": "Wait for a workflow run to reach a terminal state.",
+      "exposure": "agent-default",
+      "label": "Wait for run",
+      "name": "run_wait",
+      "operation": "run.wait",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "interval": {
+            "default": 2,
+            "description": "Polling interval in seconds.",
+            "maximum": 60,
+            "minimum": 0.1,
+            "type": "number"
+          },
+          "run_id": {
+            "description": "Workflow run id.",
+            "maxLength": 2000,
+            "minLength": 1,
+            "type": "string"
+          },
+          "wait_timeout": {
+            "default": 30,
+            "description": "Maximum wait in seconds.",
+            "maximum": 297,
+            "minimum": 1,
+            "type": "number"
+          }
+        },
+        "required": [
+          "run_id"
+        ],
+        "type": "object"
+      },
+      "requires_platform_approval": false
+    },
+    {
+      "capability": "run.view",
+      "command": "pr run results",
+      "description": "Get workflow run results.",
+      "exposure": "agent-default",
+      "label": "Get run results",
+      "name": "run_results",
+      "operation": "run.results",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "run_id": {
+            "description": "Workflow run id.",
+            "maxLength": 2000,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "run_id"
+        ],
+        "type": "object"
+      },
+      "requires_platform_approval": false
+    },
+    {
+      "capability": "run.cancel",
+      "command": "pr run cancel",
+      "description": "Cancel a workflow run after user approval.",
+      "exposure": "agent-confirmation",
+      "label": "Cancel run",
+      "name": "run_cancel",
+      "operation": "run.cancel",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "run_id": {
+            "description": "Workflow run id.",
+            "maxLength": 2000,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "run_id"
+        ],
+        "type": "object"
+      },
+      "requires_platform_approval": true
+    },
+    {
+      "capability": "run.cancel",
+      "command": "pr run retry",
+      "description": "Retry a workflow run after user approval.",
+      "exposure": "agent-confirmation",
+      "label": "Retry run",
+      "name": "run_retry",
+      "operation": "run.retry",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "run_id": {
+            "description": "Workflow run id.",
+            "maxLength": 2000,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "run_id"
+        ],
+        "type": "object"
+      },
+      "requires_platform_approval": true
+    },
+    {
+      "capability": "run.view",
+      "command": "pr run node get",
+      "description": "Get the result for one node in a workflow run.",
+      "exposure": "agent-default",
+      "label": "Get run node result",
+      "name": "run_node_get",
+      "operation": "run.node.get",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "node_id": {
+            "description": "Node id.",
+            "maxLength": 2000,
+            "minLength": 1,
+            "type": "string"
+          },
+          "run_id": {
+            "description": "Workflow run id.",
+            "maxLength": 2000,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "run_id",
+          "node_id"
+        ],
+        "type": "object"
+      },
+      "requires_platform_approval": false
+    },
+    {
+      "capability": "file.view",
+      "command": "pr file list",
+      "description": "List workspace file metadata. Files are uploaded by the user, not by the Agent.",
+      "exposure": "agent-default",
+      "label": "List files",
+      "name": "file_list",
+      "operation": "file.list",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "limit": {
+            "default": 50,
+            "description": "Number of files to return.",
+            "maximum": 200,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "page": {
+            "default": 1,
+            "description": "One-based result page.",
+            "maximum": 100000,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "query": {
+            "description": "Optional file name search.",
+            "maxLength": 2000,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "requires_platform_approval": false
+    },
+    {
+      "capability": "file.view",
+      "command": "pr file get",
+      "description": "Get workspace file metadata.",
+      "exposure": "agent-default",
+      "label": "Get file",
+      "name": "file_get",
+      "operation": "file.get",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "file_id": {
+            "description": "Workspace file id.",
+            "maxLength": 2000,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "file_id"
+        ],
+        "type": "object"
+      },
+      "requires_platform_approval": false
+    },
+    {
+      "capability": "dataset.view",
+      "command": "pr test-set list",
+      "description": "List test sets in the current workspace.",
+      "exposure": "agent-default",
+      "label": "List test sets",
+      "name": "test_set_list",
+      "operation": "test-set.list",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {},
+        "type": "object"
+      },
+      "requires_platform_approval": false
+    },
+    {
+      "capability": "dataset.view",
+      "command": "pr test-set get",
+      "description": "Get test-set metadata.",
+      "exposure": "agent-default",
+      "label": "Get test set",
+      "name": "test_set_get",
+      "operation": "test-set.get",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "test_set_id": {
+            "description": "Test set id.",
+            "maxLength": 2000,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "test_set_id"
+        ],
+        "type": "object"
+      },
+      "requires_platform_approval": false
+    },
+    {
+      "capability": "dataset.view",
+      "command": "pr test-set document list",
+      "description": "List documents in a test set.",
+      "exposure": "agent-default",
+      "label": "List test-set documents",
+      "name": "test_set_document_list",
+      "operation": "test-set.document.list",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "test_set_id": {
+            "description": "Test set id.",
+            "maxLength": 2000,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "test_set_id"
+        ],
+        "type": "object"
+      },
+      "requires_platform_approval": false
+    },
+    {
+      "capability": "dataset.view",
+      "command": "pr test-set document get",
+      "description": "Get test-set document metadata.",
+      "exposure": "agent-default",
+      "label": "Get test-set document",
+      "name": "test_set_document_get",
+      "operation": "test-set.document.get",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "document_id": {
+            "description": "Test-set document id.",
+            "maxLength": 2000,
+            "minLength": 1,
+            "type": "string"
+          },
+          "test_set_id": {
+            "description": "Test set id.",
+            "maxLength": 2000,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "test_set_id",
+          "document_id"
+        ],
+        "type": "object"
+      },
+      "requires_platform_approval": false
+    },
+    {
+      "capability": "dataset.view",
+      "command": "pr ground-truth get",
+      "description": "Get the latest ground truth for a test-set document.",
+      "exposure": "agent-default",
+      "label": "Get ground truth",
+      "name": "ground_truth_get",
+      "operation": "ground-truth.get",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "document_id": {
+            "description": "Test-set document id.",
+            "maxLength": 2000,
+            "minLength": 1,
+            "type": "string"
+          },
+          "test_set_id": {
+            "description": "Test set id.",
+            "maxLength": 2000,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "test_set_id",
+          "document_id"
+        ],
+        "type": "object"
+      },
+      "requires_platform_approval": false
+    },
+    {
+      "capability": "dataset.view",
+      "command": "pr ground-truth version list",
+      "description": "List ground-truth versions for a test-set document.",
+      "exposure": "agent-default",
+      "label": "List ground-truth versions",
+      "name": "ground_truth_version_list",
+      "operation": "ground-truth.version.list",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "document_id": {
+            "description": "Test-set document id.",
+            "maxLength": 2000,
+            "minLength": 1,
+            "type": "string"
+          },
+          "test_set_id": {
+            "description": "Test set id.",
+            "maxLength": 2000,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "test_set_id",
+          "document_id"
+        ],
+        "type": "object"
+      },
+      "requires_platform_approval": false
+    },
+    {
+      "capability": "dataset.view",
+      "command": "pr ground-truth version get",
+      "description": "Get a ground-truth version for a test-set document.",
+      "exposure": "agent-default",
+      "label": "Get ground-truth version",
+      "name": "ground_truth_version_get",
+      "operation": "ground-truth.version.get",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "document_id": {
+            "description": "Test-set document id.",
+            "maxLength": 2000,
+            "minLength": 1,
+            "type": "string"
+          },
+          "test_set_id": {
+            "description": "Test set id.",
+            "maxLength": 2000,
+            "minLength": 1,
+            "type": "string"
+          },
+          "version": {
+            "description": "Positive version number.",
+            "maximum": 1000000,
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "test_set_id",
+          "document_id",
+          "version"
+        ],
+        "type": "object"
+      },
+      "requires_platform_approval": false
+    },
+    {
+      "capability": "run.view",
+      "command": "pr evaluation list",
+      "description": "List evaluation runs for a test set.",
+      "exposure": "agent-default",
+      "label": "List evaluations",
+      "name": "evaluation_list",
+      "operation": "evaluation.list",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "test_set_id": {
+            "description": "Test set id.",
+            "maxLength": 2000,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "test_set_id"
+        ],
+        "type": "object"
+      },
+      "requires_platform_approval": false
+    },
+    {
+      "capability": "run.view",
+      "command": "pr evaluation get",
+      "description": "Get evaluation metadata.",
+      "exposure": "agent-default",
+      "label": "Get evaluation",
+      "name": "evaluation_get",
+      "operation": "evaluation.get",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "evaluation_id": {
+            "description": "Evaluation run id.",
+            "maxLength": 2000,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "evaluation_id"
+        ],
+        "type": "object"
+      },
+      "requires_platform_approval": false
+    },
+    {
+      "capability": "run.view",
+      "command": "pr evaluation wait",
+      "description": "Wait for an evaluation to reach a terminal state.",
+      "exposure": "agent-default",
+      "label": "Wait for evaluation",
+      "name": "evaluation_wait",
+      "operation": "evaluation.wait",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "evaluation_id": {
+            "description": "Evaluation run id.",
+            "maxLength": 2000,
+            "minLength": 1,
+            "type": "string"
+          },
+          "interval": {
+            "default": 2,
+            "description": "Polling interval in seconds.",
+            "maximum": 60,
+            "minimum": 0.1,
+            "type": "number"
+          },
+          "wait_timeout": {
+            "default": 30,
+            "description": "Maximum wait in seconds.",
+            "maximum": 297,
+            "minimum": 1,
+            "type": "number"
+          }
+        },
+        "required": [
+          "evaluation_id"
+        ],
+        "type": "object"
+      },
+      "requires_platform_approval": false
+    },
+    {
+      "capability": "run.view",
+      "command": "pr evaluation results",
+      "description": "List results for an evaluation.",
+      "exposure": "agent-default",
+      "label": "Get evaluation results",
+      "name": "evaluation_results",
+      "operation": "evaluation.results",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "evaluation_id": {
+            "description": "Evaluation run id.",
+            "maxLength": 2000,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "evaluation_id"
+        ],
+        "type": "object"
+      },
+      "requires_platform_approval": false
+    },
+    {
+      "capability": "run.view",
+      "command": "pr evaluation result",
+      "description": "Get one evaluation result.",
+      "exposure": "agent-default",
+      "label": "Get evaluation result",
+      "name": "evaluation_result",
+      "operation": "evaluation.result",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "evaluation_id": {
+            "description": "Evaluation run id.",
+            "maxLength": 2000,
+            "minLength": 1,
+            "type": "string"
+          },
+          "result_id": {
+            "description": "Evaluation result id.",
+            "maxLength": 2000,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "evaluation_id",
+          "result_id"
+        ],
+        "type": "object"
+      },
+      "requires_platform_approval": false
+    },
+    {
+      "capability": "workflow.run",
+      "command": "pr evaluation create",
+      "description": "Create an evaluation for a test set and workflow after user approval.",
+      "exposure": "agent-confirmation",
+      "label": "Create evaluation",
+      "name": "evaluation_create",
+      "operation": "evaluation.create",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "client_request_id": {
+            "description": "Optional idempotency key.",
+            "maxLength": 2000,
+            "minLength": 1,
+            "type": "string"
+          },
+          "document_ids": {
+            "description": "Optional test-set document ids.",
+            "items": {
+              "description": "Resource id.",
+              "maxLength": 2000,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 1000,
+            "type": "array"
+          },
+          "name": {
+            "description": "Optional evaluation name.",
+            "maxLength": 2000,
+            "minLength": 1,
+            "type": "string"
+          },
+          "test_set_id": {
+            "description": "Test set id.",
+            "maxLength": 2000,
+            "minLength": 1,
+            "type": "string"
+          },
+          "workflow_id": {
+            "description": "Workflow id.",
+            "maxLength": 2000,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "test_set_id",
+          "workflow_id"
+        ],
+        "type": "object"
+      },
+      "requires_platform_approval": true
+    },
+    {
+      "capability": "run.cancel",
+      "command": "pr evaluation cancel",
+      "description": "Cancel an evaluation after user approval.",
+      "exposure": "agent-confirmation",
+      "label": "Cancel evaluation",
+      "name": "evaluation_cancel",
+      "operation": "evaluation.cancel",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "evaluation_id": {
+            "description": "Evaluation run id.",
+            "maxLength": 2000,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "evaluation_id"
+        ],
+        "type": "object"
+      },
+      "requires_platform_approval": true
+    },
+    {
+      "capability": "run.view",
+      "command": "pr evaluation comparison get",
+      "description": "Get comparison data for one evaluation result.",
+      "exposure": "agent-default",
+      "label": "Get evaluation comparison",
+      "name": "evaluation_comparison_get",
+      "operation": "evaluation.comparison.get",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "evaluation_id": {
+            "description": "Evaluation run id.",
+            "maxLength": 2000,
+            "minLength": 1,
+            "type": "string"
+          },
+          "result_id": {
+            "description": "Evaluation result id.",
+            "maxLength": 2000,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "evaluation_id",
+          "result_id"
+        ],
+        "type": "object"
+      },
+      "requires_platform_approval": false
+    },
+    {
+      "capability": "provider.view",
+      "command": "pr provider list",
+      "description": "List provider metadata visible in the current workspace.",
+      "exposure": "agent-default",
+      "label": "List providers",
+      "name": "provider_list",
+      "operation": "provider.list",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "all": {
+            "default": false,
+            "description": "Include disabled providers.",
+            "type": "boolean"
+          },
+          "category": {
+            "description": "Optional engine category.",
+            "maxLength": 2000,
+            "minLength": 1,
+            "type": "string"
+          },
+          "provider_type": {
+            "description": "Optional provider type.",
+            "maxLength": 2000,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "requires_platform_approval": false
+    },
+    {
+      "capability": "provider.view",
+      "command": "pr provider get",
+      "description": "Get provider metadata.",
+      "exposure": "agent-default",
+      "label": "Get provider",
+      "name": "provider_get",
+      "operation": "provider.get",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "provider_id": {
+            "description": "Provider id.",
+            "maxLength": 2000,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "provider_id"
+        ],
+        "type": "object"
+      },
+      "requires_platform_approval": false
+    },
+    {
+      "capability": "provider.view",
+      "command": "pr provider model list",
+      "description": "List enabled provider model metadata.",
+      "exposure": "agent-default",
+      "label": "List provider models",
+      "name": "provider_model_list",
+      "operation": "provider.model.list",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "category": {
+            "description": "Optional engine category.",
+            "maxLength": 2000,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "requires_platform_approval": false
+    },
+    {
+      "capability": null,
+      "command": "pr node-type list",
+      "description": "List workflow node types available on the platform.",
+      "exposure": "agent-default",
+      "label": "List node types",
+      "name": "node_type_list",
+      "operation": "node-type.list",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {},
+        "type": "object"
+      },
+      "requires_platform_approval": false
+    }
+  ]
+}

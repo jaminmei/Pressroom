@@ -147,6 +147,123 @@ def ocr_payload() -> dict:  # type: ignore[type-arg]
 
 
 class TestProviderCRUD:
+    def test_llm_api_round_trip(self, client: TestClient) -> None:
+        created = client.post(
+            "/api/providers",
+            json={
+                "name": "Chat",
+                "provider_type": "llm_api",
+                "engine_category": "llm",
+                "base_url": "https://api.example/v1/",
+                "api_protocol": "openai_responses",
+                "api_key": "secret",
+                "model_id": "gpt-test",
+                "model_display_name": "Test Model",
+                "model_context_window": 200000,
+                "model_max_tokens": 8192,
+                "model_reasoning": True,
+                "is_chatbot_default": True,
+            },
+        )
+        assert created.status_code == 201
+        provider_id = created.json()["id"]
+        assert created.json()["base_url"] == "https://api.example/v1"
+        assert created.json()["has_api_key"] is True
+        assert created.json()["model_context_window"] == 200000
+        assert created.json()["model_max_tokens"] == 8192
+        assert created.json()["model_reasoning"] is True
+        assert "api_key" not in created.json()
+
+        updated = client.put(
+            f"/api/providers/{provider_id}",
+            json={"api_key": "", "model_display_name": "Updated Model"},
+        )
+        assert updated.status_code == 200
+        detail = client.get(f"/api/providers/{provider_id}")
+        assert detail.status_code == 200
+        assert detail.json()["api_protocol"] == "openai_responses"
+        assert detail.json()["model_display_name"] == "Updated Model"
+        assert detail.json()["model_context_window"] == 200000
+        assert detail.json()["model_max_tokens"] == 8192
+        assert detail.json()["model_reasoning"] is True
+        assert detail.json()["has_api_key"] is True
+
+    def test_non_llm_capabilities_are_null(self, client: TestClient, ocr_payload: dict) -> None:  # type: ignore[type-arg]
+        created = client.post("/api/providers", json=ocr_payload)
+
+        assert created.status_code == 201
+        assert created.json()["model_context_window"] is None
+        assert created.json()["model_max_tokens"] is None
+        assert created.json()["model_reasoning"] is None
+
+    def test_non_llm_rejects_model_capabilities(
+        self,
+        client: TestClient,
+        ocr_payload: dict,  # type: ignore[type-arg]
+    ) -> None:
+        response = client.post(
+            "/api/providers",
+            json={**ocr_payload, "model_context_window": 128000},
+        )
+
+        assert response.status_code == 422
+        assert "only llm_api providers" in response.json()["detail"]
+
+    def test_llm_api_create_without_api_key_returns_422(self, client: TestClient) -> None:
+        response = client.post(
+            "/api/providers",
+            json={
+                "name": "Chat",
+                "provider_type": "llm_api",
+                "engine_category": "llm",
+                "base_url": "https://api.example/v1",
+                "api_protocol": "openai_chat_completions",
+                "model_id": "gpt-test",
+            },
+        )
+        assert response.status_code == 422
+        assert "api_key" in response.json()["detail"]
+
+    def test_llm_api_create_without_model_id_returns_422(self, client: TestClient) -> None:
+        response = client.post(
+            "/api/providers",
+            json={
+                "name": "Chat",
+                "provider_type": "llm_api",
+                "engine_category": "llm",
+                "base_url": "https://api.example/v1",
+                "api_protocol": "openai_chat_completions",
+                "api_key": "secret",
+            },
+        )
+        assert response.status_code == 422
+        assert "model_id" in response.json()["detail"]
+
+    def test_llm_api_update_resource_url_returns_422(self, client: TestClient) -> None:
+        created = client.post(
+            "/api/providers",
+            json={
+                "name": "Chat",
+                "provider_type": "llm_api",
+                "engine_category": "llm",
+                "base_url": "https://api.example/v1",
+                "api_protocol": "openai_chat_completions",
+                "api_key": "secret",
+                "model_id": "gpt-test",
+            },
+        )
+        assert created.status_code == 201
+
+        response = client.put(
+            f"/api/providers/{created.json()['id']}",
+            json={"base_url": "https://api.example/v1/chat/completions"},
+        )
+
+        assert response.status_code == 422
+        assert response.json()["detail"] == (
+            "llm_api base_url cannot include a protocol resource path"
+        )
+
     def test_list_providers_empty(self, client: TestClient) -> None:
         r = client.get("/api/providers")
         assert r.status_code == 200

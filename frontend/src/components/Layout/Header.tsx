@@ -1,11 +1,15 @@
 import { useState } from "react";
 import { SearchOutlined, UserOutlined } from "@ant-design/icons";
-import { App as AntApp, Avatar, Button, Dropdown, theme } from "antd";
+import { App as AntApp, Avatar, Button, Dropdown, Switch, theme } from "antd";
 import type { MenuProps } from "antd";
 import { useTranslation } from "react-i18next";
 import { useLocation, useNavigate } from "react-router-dom";
 
 import CorgiLogo from "@/components/Icons/CorgiLogo";
+import {
+  useChatboxPreferenceStore,
+  useExperimentalChatboxEnabled,
+} from "@/features/chatbox/chatboxPreferenceStore";
 import { useTaskExecutionStore } from "@/features/task-execution/store";
 import { NewWorkspaceDialog } from "@/features/workspaces/components/NewWorkspaceDialog";
 import { useAuthStore } from "@/stores/authStore";
@@ -30,6 +34,9 @@ export default function Header() {
   const resetTaskExecution = useTaskExecutionStore((state) => state.reset);
   const currentUser = useAuthStore((state) => state.currentUser);
   const logout = useAuthStore((state) => state.logout);
+  const currentUserId = currentUser?.id ?? null;
+  const chatboxEnabled = useExperimentalChatboxEnabled(currentUserId);
+  const setChatboxEnabled = useChatboxPreferenceStore((state) => state.setEnabled);
 
   const {
     currentWorkspace,
@@ -83,6 +90,35 @@ export default function Header() {
       key: "user-info",
       label: displayName,
       disabled: true,
+    },
+    { type: "divider" },
+    {
+      key: "experimental-chatbox",
+      onClick: ({ domEvent }) => {
+        domEvent.stopPropagation();
+        if (currentUserId !== null) setChatboxEnabled(currentUserId, !chatboxEnabled);
+      },
+      label: (
+        <span
+          className="app-user-menu-toggle"
+          onClick={(event) => {
+            event.stopPropagation();
+            if (currentUserId !== null) setChatboxEnabled(currentUserId, !chatboxEnabled);
+          }}
+        >
+          <span>{t("layout:experimentalChatbox")}</span>
+          <Switch
+            checked={chatboxEnabled}
+            data-testid="experimental-chatbox-toggle"
+            disabled={currentUserId === null}
+            onClick={(checked, event) => {
+              event.stopPropagation();
+              if (currentUserId !== null) setChatboxEnabled(currentUserId, checked);
+            }}
+            size="small"
+          />
+        </span>
+      ),
     },
     { type: "divider" },
     {

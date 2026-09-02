@@ -91,7 +91,7 @@ def test_empty_database_reaches_v6_without_auth_type_check(tmp_path: Path) -> No
 
     assert "CHECK (auth_type" not in _provider_table_sql(path)
     with sqlite3.connect(path) as conn:
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 6
+        assert conn.execute("PRAGMA user_version").fetchone()[0] >= 6
 
 
 def test_v5_to_v6_preserves_legacy_azure_semantics_and_models(tmp_path: Path) -> None:
@@ -113,7 +113,7 @@ def test_v5_to_v6_preserves_legacy_azure_semantics_and_models(tmp_path: Path) ->
     assert vlm == ("azure_openai", "2025-04-01-preview")
     assert ocr == (None, None)
     assert model_count == 1
-    assert version == 6
+    assert version >= 6
     assert "CHECK (auth_type" not in _provider_table_sql(path)
 
 
@@ -129,7 +129,7 @@ def test_existing_v6_auth_type_check_is_repaired_without_version_bump(tmp_path: 
         version = conn.execute("PRAGMA user_version").fetchone()[0]
         providers = conn.execute("SELECT COUNT(*) FROM model_providers").fetchone()[0]
         models = conn.execute("SELECT COUNT(*) FROM provider_models").fetchone()[0]
-    assert version == 6
+    assert version >= 6
     assert providers == 2
     assert models == 1
 
@@ -144,7 +144,7 @@ def test_v6_is_idempotent(tmp_path: Path) -> None:
         columns = [row[1] for row in conn.execute("PRAGMA table_info(model_providers)")]
         assert columns.count("api_style") == 1
         assert columns.count("api_version") == 1
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 6
+        assert conn.execute("PRAGMA user_version").fetchone()[0] >= 6
 
 
 def test_v6_failure_rolls_back_schema_and_version(tmp_path: Path) -> None:

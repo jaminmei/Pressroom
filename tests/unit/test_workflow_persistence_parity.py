@@ -97,7 +97,8 @@ def test_store_round_trip_restore_and_snapshot_immutability(
     assert restored.name == "Complex v1"
     assert restored.description == "original"
     assert restored.definition == definition_v1
-    assert restored.latest_version == saved.latest_version == 2
+    assert saved.latest_version == 2
+    assert restored.latest_version == 3
     assert restored.published_version == saved.published_version is None
 
     version_one = store.get_version(workflow.id, 1, workspace_id=WORKSPACE_ID)

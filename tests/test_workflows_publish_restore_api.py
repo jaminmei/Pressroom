@@ -212,9 +212,10 @@ def test_publish_and_restore_workflow_version(
         )
         assert update.status_code == 200
 
-        restore = client.post(f"/api/workflows/{workflow_id}/restore", json={"version": 1})
+        restore = client.post(f"/api/workflows/{workflow_id}/versions/1/restore")
         assert restore.status_code == 200
         assert restore.json()["data"]["restored_version"] == 1
+        assert restore.json()["data"]["version"] == 3
 
         detail = client.get(f"/api/workflows/{workflow_id}")
         assert detail.status_code == 200

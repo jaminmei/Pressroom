@@ -24,6 +24,7 @@ from app.db.base import Base
 from app.main import app
 from app.models.execution import NodeOutput
 from app.services.engine_client import EngineClient
+from app.storage.local import get_storage
 from tests._api_workspace_contract import TEST_WORKSPACE_ID
 from tests.integration.workspace_api_support import reset_db_runtime, skip_discover_seed_configs
 
@@ -80,11 +81,18 @@ async def isolated_env(
         get_file_store,
         get_task_file_store,
         get_workflow_store,
+        get_storage,
     ):
         fn.cache_clear()
     async with app.router.lifespan_context(app):
         yield tmp_path
-    for fn in (get_workflow_store, get_task_file_store, get_file_store, get_settings):
+    for fn in (
+        get_workflow_store,
+        get_task_file_store,
+        get_file_store,
+        get_storage,
+        get_settings,
+    ):
         fn.cache_clear()
     reset_db_runtime()
 
@@ -116,7 +124,7 @@ def _file_for_engine(engine: str) -> tuple[str, bytes, str]:
 
 async def _upload(c: AsyncClient, name: str, payload: bytes, mime: str) -> str:
     r = await c.post("/api/files/upload", files={"file": (name, payload, mime)})
-    assert r.status_code == 200
+    assert r.status_code == 200, r.text
     return r.json()["file_id"]
 
 

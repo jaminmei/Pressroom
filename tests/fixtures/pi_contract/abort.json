@@ -1,0 +1,37 @@
+{
+  "name": "abort",
+  "description": "User aborts mid-stream: the assistant message settles as aborted and only agent_settled returns the session to idle.",
+  "provenance": {
+    "sdk": { "@earendil-works/pi-coding-agent": "0.84.1" },
+    "sources": [
+      "pi_runtime/src/main.mjs (toJsonEvent delta-only message_update)",
+      "pi_runtime/node_modules/@earendil-works/pi-protocol/dist/schemas.d.ts (AssistantTranscriptItem aborted variant)"
+    ]
+  },
+  "raw_events": [
+    { "type": "agent_start" },
+    { "type": "turn_start" },
+    { "type": "message_start", "message": { "id": "u1", "role": "user", "content": [{ "type": "text", "text": "refactor everything" }], "timestamp": 1 } },
+    { "type": "message_end", "message": { "id": "u1", "role": "user", "content": [{ "type": "text", "text": "refactor everything" }], "timestamp": 1 } },
+    { "type": "message_start", "message": { "id": "a1", "role": "assistant", "content": [], "status": "streaming", "timestamp": 2 } },
+    { "type": "message_update", "assistantMessageEvent": { "type": "text_delta", "contentIndex": 0, "delta": "I will start by " } },
+    { "type": "message_update", "assistantMessageEvent": { "type": "text_delta", "contentIndex": 0, "delta": "renaming the modules" } },
+    { "type": "message_end", "message": { "id": "a1", "role": "assistant", "content": [{ "type": "text", "text": "I will start by renaming the modules" }], "status": "aborted", "stopReason": "aborted", "errorMessage": "aborted by user", "timestamp": 3 } },
+    { "type": "turn_end" },
+    { "type": "agent_end" },
+    { "type": "agent_settled" }
+  ],
+  "projected_events": [
+    { "type": "agent_start" },
+    { "type": "turn_start" },
+    { "type": "message_start", "message": { "id": "u1", "role": "user", "content": [{ "type": "text", "text": "refactor everything" }], "timestamp": 1 } },
+    { "type": "message_end", "message": { "id": "u1", "role": "user", "content": [{ "type": "text", "text": "refactor everything" }], "timestamp": 1 } },
+    { "type": "message_start", "message": { "id": "a1", "role": "assistant", "content": [], "status": "streaming", "timestamp": 2 } },
+    { "type": "message_update", "assistantMessageEvent": { "type": "text_delta", "contentIndex": 0, "delta": "I will start by " } },
+    { "type": "message_update", "assistantMessageEvent": { "type": "text_delta", "contentIndex": 0, "delta": "renaming the modules" } },
+    { "type": "message_end", "message": { "id": "a1", "role": "assistant", "content": [{ "type": "text", "text": "I will start by renaming the modules" }], "status": "aborted", "stopReason": "aborted", "timestamp": 3 } },
+    { "type": "turn_end" },
+    { "type": "agent_end" },
+    { "type": "agent_settled" }
+  ]
+}

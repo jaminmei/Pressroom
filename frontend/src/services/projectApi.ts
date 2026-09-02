@@ -506,7 +506,7 @@ export async function getRunStatus(runId: string): Promise<{
 
 export async function compareResult(runId: string, resultId: string): Promise<CompareResponse> {
   const response = await apiClient.get<CompareResponse>(
-    `/evaluation-runs/${runId}/results/${resultId}/compare`,
+    `/evaluation-runs/${runId}/results/${resultId}/comparison`,
   );
   return response.data;
 }

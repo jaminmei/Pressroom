@@ -205,7 +205,7 @@ describe("providerApi", () => {
 
   it("T-API-10: testModel(providerId, modelId) calls POST /providers/{id}/models/{modelId}/test", async () => {
     const testResponse = {
-      status: "ok" as const,
+      status: "healthy" as const,
       latency_ms: 150,
       error: null,
       model_response: "OK",
@@ -218,7 +218,7 @@ describe("providerApi", () => {
     const result = await testModel("provider-1", "model-1");
 
     expect(apiClient.post).toHaveBeenCalledWith("/providers/provider-1/models/model-1/test");
-    expect(result.status).toBe("ok");
+    expect(result.status).toBe("healthy");
     expect(result.latency_ms).toBe(150);
     expect(result.model_response).toBe("OK");
   });

@@ -209,7 +209,9 @@ export default function EngineSection({ engine }: EngineSectionProps) {
 
     // Non-VLM: simple provider-level count
     const healthyCount = healthResults.filter(h => h.status === "healthy").length;
-    const noUrlCount = healthResults.filter(h => h.status === "no_health_url").length;
+    const noUrlCount = healthResults.filter(
+      h => h.status === "unavailable" && h.error_code === "PROVIDER_HEALTH_URL_MISSING",
+    ).length;
     const totalChecked = healthResults.length;
     if (healthyCount === totalChecked) {
       return <Tag icon={<CheckCircleOutlined />} color="success">{healthyCount}/{totalChecked}</Tag>;

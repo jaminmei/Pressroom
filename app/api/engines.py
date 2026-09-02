@@ -10,12 +10,20 @@ expanded with provider counts, health summaries, and provider lists.
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
-from app.api.providers import ProviderManageDep, ProviderViewDep
+from app.api.providers import (
+    ModelTestResult,
+    ProviderDiagnosticResponse,
+    ProviderManageDep,
+    ProviderViewDep,
+    _diagnostic_error_code,
+    _diagnostic_status,
+)
 from app.errors.error_response import CANONICAL_ERROR_RESPONSES
 from app.providers.engine_registry import ENGINE_TYPES, EngineTypeMeta, get_engine_meta
 from app.providers.store import ProviderStore
@@ -121,8 +129,13 @@ class EngineListResponse(BaseModel):
 class EngineHealthResponse(BaseModel):
     """Health check summary for all providers of an engine category."""
 
+    operation: str = "engine.health"
+    status: str
+    error_code: str | None = None
+    error: str | None = None
+    checked_at: str
     category: str
-    providers: list[dict[str, Any]]
+    providers: list[ProviderDiagnosticResponse]
     healthy_count: int
     total_count: int
 
@@ -251,7 +264,7 @@ async def engine_health(
 
     auth_resolver = AuthResolver(fernet=store._fernet)
 
-    results = []
+    results: list[ProviderDiagnosticResponse] = []
     for p in providers:
         api_key = store.get_api_key(p.id)
         models = store.list_models(p.id) if p.provider_type == "openai_compatible" else []
@@ -259,19 +272,46 @@ async def engine_health(
             p, api_key=api_key, models=models, auth_resolver=auth_resolver
         )
         results.append(
-            {
-                "provider_id": result.provider_id,
-                "provider_name": result.provider_name,
-                "status": result.status,
-                "latency_ms": result.latency_ms,
-                "error": result.error,
-                "checked_at": result.checked_at,
-            }
+            ProviderDiagnosticResponse(
+                operation="provider.health",
+                target_type="provider",
+                target_id=result.provider_id,
+                target_name=result.provider_name,
+                provider_id=result.provider_id,
+                provider_name=result.provider_name,
+                status=_diagnostic_status(result.status),
+                latency_ms=result.latency_ms,
+                error_code=_diagnostic_error_code(result.status, result.error),
+                error=result.error,
+                checked_at=result.checked_at,
+                details=result.details,
+                model_results=[
+                    ModelTestResult(
+                        model_id=item.model_id,
+                        display_name=item.display_name,
+                        status=item.status,
+                        latency_ms=item.latency_ms,
+                        error=item.error,
+                    )
+                    for item in (result.model_results or [])
+                ],
+            )
         )
 
-    healthy_count = sum(1 for r in results if r["status"] == "healthy")
+    healthy_count = sum(1 for result in results if result.status == "healthy")
+    aggregate_status = (
+        "healthy"
+        if results and healthy_count == len(results)
+        else "unavailable"
+        if not results
+        else "unhealthy"
+    )
 
     return EngineHealthResponse(
+        status=aggregate_status,
+        error_code=None if aggregate_status == "healthy" else "ENGINE_DIAGNOSTIC_INCOMPLETE",
+        error=None if aggregate_status == "healthy" else "One or more providers are unavailable",
+        checked_at=datetime.now(timezone.utc).isoformat(),
         category=category,
         providers=results,
         healthy_count=healthy_count,

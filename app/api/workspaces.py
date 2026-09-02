@@ -38,6 +38,7 @@ from app.models.workspace_api import (
     WorkspaceSession,
     WorkspaceSummary,
 )
+from app.services.agent_session_credentials import AgentSessionCredentialService
 from app.services.workspace_permissions import CAPABILITIES, WorkspaceRole
 from app.services.workspace_service import WorkspaceService
 
@@ -191,6 +192,7 @@ def change_workspace_member_role(
         session.add(member)
         session.commit()
         session.refresh(member)
+        AgentSessionCredentialService().revoke_user(user_id, workspace_id=workspace_id)
         return serialize_member_enriched(session, member, caller_user_id=context.user.id)
 
 
@@ -204,8 +206,12 @@ def list_workspace_audit_events(workspace_id: str, context: ContextDep) -> dict[
             capability="workspace.update_settings",
         )
         load_workspace(session, workspace_id)
-        # Audit persistence is not implemented; preserve the response contract.
-        return {"items": [], "total": 0}
+        return {
+            "implemented": False,
+            "status": "not_implemented",
+            "items": [],
+            "total": 0,
+        }
 
 
 @router.delete("/{workspace_id}/members/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -246,6 +252,7 @@ def remove_workspace_member(workspace_id: str, user_id: str, context: ContextDep
             user.last_workspace_id = fallback_workspace_id
             session.add(user)
         session.commit()
+        AgentSessionCredentialService().revoke_user(user_id, workspace_id=workspace_id)
         return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -262,6 +269,10 @@ def transfer_workspace_owner(
             workspace_id=workspace_id,
             actor_user_id=context.user.id,
             new_owner_user_id=payload.new_owner_user_id,
+        )
+        AgentSessionCredentialService().revoke_user(context.user.id, workspace_id=workspace_id)
+        AgentSessionCredentialService().revoke_user(
+            payload.new_owner_user_id, workspace_id=workspace_id
         )
         session.refresh(workspace)
         return serialize_workspace_summary_for_member(

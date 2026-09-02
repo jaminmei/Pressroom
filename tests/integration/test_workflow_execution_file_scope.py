@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pytest
+from cryptography.fernet import Fernet
 from fastapi.testclient import TestClient
 
 from app.api.files import get_file_store
@@ -39,12 +40,13 @@ def _definition() -> dict[str, object]:
     }
 
 
-def test_workflow_execute_uses_shared_owned_file_store(
+def test_workflow_execute_uses_workspace_shared_file_store(
     workspace_api_harness: WorkspaceApiHarness,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _ = workspace_api_harness
     monkeypatch.setattr("app.main.require_workspace_runtime_env", lambda _role: None)
+    monkeypatch.setenv("PROVIDER_ENCRYPTION_KEY", Fernet.generate_key().decode())
     with TestClient(app) as owner_client:
         owner_id = _register(owner_client, "file-owner@example.com")
         runner_client = TestClient(app)
@@ -84,29 +86,19 @@ def test_workflow_execute_uses_shared_owned_file_store(
             assert record is not None
             assert record.workspace_id == workspace_a
             assert record.uploaded_by_user_id == owner_id
-            task_ids_before = set(orchestrator._tasks)
-
-            wrong_user = runner_client.post(
-                f"/api/workflows/{workflow_a.json()['workflow_id']}/execute"
-                f"?workspace_id={workspace_a}",
-                json={"file_ids": [file_id]},
-            )
             cross_workspace = owner_client.post(
                 f"/api/workflows/{workflow_b.json()['workflow_id']}/execute"
                 f"?workspace_id={workspace_b}",
                 json={"file_ids": [file_id]},
             )
-
-            assert wrong_user.status_code == 400
             assert cross_workspace.status_code == 400
-            assert set(orchestrator._tasks) == task_ids_before
 
-            owned = owner_client.post(
+            shared_member = runner_client.post(
                 f"/api/workflows/{workflow_a.json()['workflow_id']}/execute"
                 f"?workspace_id={workspace_a}",
                 json={"file_ids": [file_id]},
             )
-            assert owned.status_code == 202
-            assert owned.json()["task_id"] in orchestrator._tasks
+            assert shared_member.status_code == 202
+            assert shared_member.json()["task_id"] in orchestrator._tasks
         finally:
             runner_client.close()

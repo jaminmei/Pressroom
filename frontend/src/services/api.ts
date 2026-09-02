@@ -20,6 +20,8 @@ type UnauthorizedHandler = (code: UnauthorizedCode, error: AxiosError<ApiErrorEn
 
 let unauthorizedHandler: UnauthorizedHandler | null = null;
 
+export const API_BASE_PATH = "/api";
+
 export function setUnauthorizedHandler(handler: UnauthorizedHandler | null): void {
   unauthorizedHandler = handler;
 }
@@ -49,7 +51,7 @@ export function getApiErrorMessage(error: unknown, fallback: string): string {
 }
 
 export const apiClient = axios.create({
-  baseURL: "/api",
+  baseURL: API_BASE_PATH,
   timeout: 30000,
   withCredentials: true
 });

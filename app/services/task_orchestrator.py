@@ -39,6 +39,7 @@ from app.services.task_runner_base import TaskRunnerBase
 from app.services.task_runner_factory import TaskRunnerFactory
 from app.services.topological_sort import ExecutionPlan, build_execution_plan
 from app.storage.base import StorageAdapter
+from app.storage.utils import resolve_storage_path
 
 MAX_TASKS = 1000
 EVENT_QUEUE_MAXSIZE = 64
@@ -901,6 +902,11 @@ class TaskOrchestrator:
                 result_preview=self._resolve_result_preview(context, results),
                 results=results,
                 error=context.error,
+                input_files=[
+                    {"node_id": node_id, **binding.model_dump(mode="json")}
+                    for node_id, binding in context.input_files.items()
+                ],
+                workflow=context.workflow.model_dump(mode="json"),
                 updated_at=context.updated_at,
             )
         except Exception as exc:  # noqa: BLE001
@@ -1146,9 +1152,16 @@ class TaskOrchestrator:
             if record is None:
                 raise ValueError(f"找不到檔案：{file_id}")
 
+            storage = getattr(self, "_storage", None)
+            storage_root = getattr(storage, "storage_root", None)
+            file_path = (
+                str(resolve_storage_path(record.storage_path, storage_root))
+                if storage_root is not None
+                else record.storage_path
+            )
             bindings[node.id] = TaskInputFile(
                 file_id=record.file_id,
-                file_path=record.storage_path,
+                file_path=file_path,
                 filename=record.filename,
                 mime_type=record.mime_type,
                 size_bytes=record.size_bytes,

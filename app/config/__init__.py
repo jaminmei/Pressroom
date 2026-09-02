@@ -9,7 +9,7 @@ from os import environ
 from pathlib import Path
 from typing import Literal, Mapping, TypedDict
 
-from pydantic import AliasChoices, Field
+from pydantic import AliasChoices, Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy.engine import make_url
 
@@ -44,6 +44,26 @@ class Settings(BaseSettings):
     image_enhancement_engine_url: str = "http://localhost:8008"
     image_rotation_engine_url: str = "http://localhost:8009"
     adaptor_sandbox_broker_url: str = "http://adaptor-sandbox-broker:8080"
+    chatbox_internal_proxy_base_url: str = "http://127.0.0.1:8000"
+    pi_runtime_service_url: str | None = None
+    pi_runtime_control_token: SecretStr | None = None
+    pi_runtime_uid: int = Field(default=10004, ge=1, le=2_147_483_647)
+    pi_runtime_gid: int = Field(default=10004, ge=1, le=2_147_483_647)
+    agent_checkpoint_root: str | None = None
+    agent_session_token_ttl_minutes: int = Field(
+        default=30,
+        ge=5,
+        le=60,
+        validation_alias=AliasChoices(
+            "AGENT_SESSION_CREDENTIAL_TTL_MINUTES",
+            "AGENT_SESSION_TOKEN_TTL_MINUTES",
+        ),
+    )
+    agent_tool_approval_ttl_seconds: int = Field(default=60, ge=15, le=300)
+    agent_tool_timeout_seconds: int = Field(default=45, ge=5, le=300)
+    agent_tool_output_max_bytes: int = Field(default=1_048_576, ge=4_096, le=16_777_216)
+    agent_admission_max_message_bytes: int = Field(default=32_768, ge=1_024, le=1_048_576)
+    agent_admission_turns_per_minute: int = Field(default=20, ge=1, le=600)
 
     cors_origins: str = Field(
         default="http://localhost:5173",
@@ -62,6 +82,7 @@ class Settings(BaseSettings):
     runtime_attestation_timeout_seconds: float = Field(default=5.0, gt=0, le=30)
     auth_session_domain: str | None = None
     auth_session_path: str = "/"
+    operator_health_token: SecretStr | None = None
 
     workflow_api_timeout_seconds: int = Field(
         default=300,
@@ -108,6 +129,16 @@ class Settings(BaseSettings):
         default=10,
         ge=1,
         description="Per-API-key request limit on /run/upload endpoint",
+    )
+    workspace_file_quota_bytes: int = Field(
+        default=1_073_741_824,
+        ge=1,
+        description="Maximum active File bytes stored by one workspace.",
+    )
+    workspace_file_deleted_retention_days: int = Field(
+        default=7,
+        ge=0,
+        description="Days to retain soft-deleted File metadata after object cleanup.",
     )
     api_usage_retention_max_bytes_per_workflow: int = Field(
         default=52_428_800,

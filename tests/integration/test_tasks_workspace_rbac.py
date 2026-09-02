@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+from types import SimpleNamespace
 from typing import cast
+from unittest.mock import AsyncMock
 
 import pytest
 from fastapi import FastAPI
@@ -103,7 +106,14 @@ def _workspace_user(email: str, role: WorkspaceRole) -> tuple[str, str]:
     return user_id, workspace_id
 
 
-def _insert_task(task_id: str, workspace_id: str, *, status: str = "completed") -> None:
+def _insert_task(
+    task_id: str,
+    workspace_id: str,
+    *,
+    status: str = "completed",
+    workflow: dict[str, object] | None = None,
+    input_files: list[dict[str, object]] | None = None,
+) -> None:
     now = datetime.now(timezone.utc)
     with db_session.SessionLocal() as session:
         session.add(
@@ -114,6 +124,8 @@ def _insert_task(task_id: str, workspace_id: str, *, status: str = "completed") 
                 created_at=now,
                 completed_at=now,
                 results_json='[{"result_id":"r1","content":"ok"}]',
+                workflow_json=json.dumps(workflow) if workflow is not None else None,
+                input_files_json=json.dumps(input_files) if input_files is not None else None,
                 updated_at=now,
             )
         )
@@ -242,6 +254,147 @@ def test_runner_can_cancel_running_task(task_rbac_db: None) -> None:
     assert response.status_code == 200
     assert response.json()["status"] == "cancelled"
     assert app.state.running_tasks["task_cancel"].cancel_requested is True
+
+
+@pytest.mark.parametrize("status", ["pending", "running"])
+def test_runner_can_durably_cancel_snapshot_only_task(
+    task_rbac_db: None,
+    status: str,
+) -> None:
+    user_id, workspace_id = _workspace_user(
+        f"runner-cancel-{status}@example.com",
+        WorkspaceRole.RUNNER,
+    )
+    task_id = f"task_snapshot_{status}"
+    _insert_task(task_id, workspace_id, status=status)
+    app = _task_app(
+        workspace_id=workspace_id,
+        user_id=user_id,
+        email=f"runner-cancel-{status}@example.com",
+        role=WorkspaceRole.RUNNER,
+    )
+
+    response = TestClient(app).delete(f"/api/tasks/{task_id}")
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "cancelled"
+    assert response.json()["idempotent"] is False
+    with db_session.SessionLocal() as session:
+        persisted = session.get(TaskRun, task_id)
+        assert persisted is not None
+        assert persisted.status == "cancelled"
+        assert persisted.completed_at is not None
+
+
+def test_snapshot_cancel_is_idempotent(task_rbac_db: None) -> None:
+    user_id, workspace_id = _workspace_user(
+        "runner-cancel-idempotent@example.com",
+        WorkspaceRole.RUNNER,
+    )
+    _insert_task("task_cancelled", workspace_id, status="cancelled")
+    app = _task_app(
+        workspace_id=workspace_id,
+        user_id=user_id,
+        email="runner-cancel-idempotent@example.com",
+        role=WorkspaceRole.RUNNER,
+    )
+
+    response = TestClient(app).delete("/api/tasks/task_cancelled")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "task_id": "task_cancelled",
+        "status": "cancelled",
+        "idempotent": True,
+    }
+
+
+def test_runner_can_retry_snapshot_as_new_task(task_rbac_db: None) -> None:
+    user_id, workspace_id = _workspace_user(
+        "runner-snapshot-retry@example.com",
+        WorkspaceRole.RUNNER,
+    )
+    workflow = {
+        "nodes": [{"id": "input", "type": "input/text", "config": {}}],
+        "connections": [],
+    }
+    _insert_task(
+        "task_failed",
+        workspace_id,
+        status="failed",
+        workflow=workflow,
+        input_files=[{"node_id": "input", "file_id": "file_123"}],
+    )
+    app = _task_app(
+        workspace_id=workspace_id,
+        user_id=user_id,
+        email="runner-snapshot-retry@example.com",
+        role=WorkspaceRole.RUNNER,
+    )
+    created_at = datetime.now(timezone.utc)
+    create_from_workflow = AsyncMock(
+        return_value=SimpleNamespace(
+            task_id="task_retried",
+            status=SimpleNamespace(value="pending"),
+            created_at=created_at,
+        )
+    )
+    app.state.task_orchestrator = SimpleNamespace(
+        create_from_workflow=create_from_workflow,
+    )
+
+    response = TestClient(app).post("/api/tasks/task_failed/retry")
+
+    assert response.status_code == 202
+    assert response.json()["task_id"] == "task_retried"
+    assert response.json()["retried_from_task_id"] == "task_failed"
+    create_from_workflow.assert_awaited_once()
+    call = create_from_workflow.await_args
+    assert call.kwargs["file_ids"] == ["file_123"]
+    assert call.kwargs["workspace_id"] == workspace_id
+    assert call.kwargs["requested_by_user_id"] == user_id
+
+
+@pytest.mark.parametrize(
+    ("workflow", "input_files"),
+    [
+        (None, None),
+        (
+            {
+                "nodes": [{"id": "input", "type": "input/text", "config": {}}],
+                "connections": [],
+            },
+            [],
+        ),
+    ],
+)
+def test_snapshot_retry_requires_workflow_and_file_bindings(
+    task_rbac_db: None,
+    workflow: dict[str, object] | None,
+    input_files: list[dict[str, object]] | None,
+) -> None:
+    user_id, workspace_id = _workspace_user(
+        "runner-retry-unavailable@example.com",
+        WorkspaceRole.RUNNER,
+    )
+    _insert_task(
+        "task_retry_unavailable",
+        workspace_id,
+        status="failed",
+        workflow=workflow,
+        input_files=input_files,
+    )
+    app = _task_app(
+        workspace_id=workspace_id,
+        user_id=user_id,
+        email="runner-retry-unavailable@example.com",
+        role=WorkspaceRole.RUNNER,
+    )
+
+    response = TestClient(app).post("/api/tasks/task_retry_unavailable/retry")
+
+    assert response.status_code == 409
+    assert response.json()["error_code"] == "RETRY_NOT_AVAILABLE"
 
 
 def test_viewer_cannot_cancel_task(task_rbac_db: None) -> None:

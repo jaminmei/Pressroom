@@ -1,0 +1,55 @@
+{
+  "name": "multi-tool",
+  "description": "Two tool calls in one assistant message with executions, partial results, and tool result messages; exercises in-workspace path normalization and credential stripping.",
+  "provenance": {
+    "sdk": { "@earendil-works/pi-coding-agent": "0.84.1" },
+    "sources": [
+      "pi_runtime/src/main.mjs (toJsonEvent delta-only message_update)",
+      "pi_runtime/node_modules/@earendil-works/pi-agent-core/dist/types.d.ts (tool_execution_* events)"
+    ]
+  },
+  "raw_events": [
+    { "type": "agent_start" },
+    { "type": "turn_start" },
+    { "type": "message_start", "message": { "id": "a1", "role": "assistant", "content": [], "status": "streaming", "timestamp": 1 } },
+    { "type": "message_update", "assistantMessageEvent": { "type": "text_delta", "contentIndex": 0, "delta": "Checking the file first." } },
+    { "type": "message_update", "assistantMessageEvent": { "type": "toolcall_delta", "contentIndex": 1, "delta": "{\"path\":\"src/app.ts\"}" } },
+    { "type": "message_update", "assistantMessageEvent": { "type": "toolcall_delta", "contentIndex": 2, "delta": "{\"pattern\":\"TODO\"}" } },
+    { "type": "message_end", "message": { "id": "a1", "role": "assistant", "content": [{ "type": "text", "text": "Checking the file first." }, { "type": "toolCall", "toolCallId": "tc-read", "toolName": "read", "input": { "path": "src/app.ts" } }, { "type": "toolCall", "toolCallId": "tc-grep", "toolName": "grep", "input": { "pattern": "TODO" } }], "status": "complete", "stopReason": "toolUse", "timestamp": 2 } },
+    { "type": "tool_execution_start", "toolCallId": "tc-read", "toolName": "read", "args": { "path": "${workspace_root}/src/app.ts" } },
+    { "type": "tool_execution_update", "toolCallId": "tc-read", "toolName": "read", "args": { "path": "${workspace_root}/src/app.ts" }, "partialResult": { "content": [{ "type": "text", "text": "export const app" }], "details": { "truncation": { "truncated": false } } } },
+    { "type": "tool_execution_end", "toolCallId": "tc-read", "toolName": "read", "result": { "content": [{ "type": "text", "text": "export const app = 1;" }], "details": { "truncation": { "truncated": false } } }, "isError": false },
+    { "type": "tool_execution_start", "toolCallId": "tc-grep", "toolName": "grep", "args": { "pattern": "TODO" } },
+    { "type": "tool_execution_update", "toolCallId": "tc-grep", "toolName": "grep", "args": { "pattern": "TODO" }, "partialResult": { "content": [{ "type": "text", "text": "src/app.ts:3:TODO fix" }] } },
+    { "type": "tool_execution_end", "toolCallId": "tc-grep", "toolName": "grep", "result": { "content": [{ "type": "text", "text": "src/app.ts:3:TODO fix" }], "details": {} }, "isError": false },
+    { "type": "message_start", "message": { "id": "tr1", "role": "toolResult", "toolCallId": "tc-read", "toolName": "read", "content": [{ "type": "text", "text": "export const app = 1;" }], "isError": false, "timestamp": 3 } },
+    { "type": "message_end", "message": { "id": "tr1", "role": "toolResult", "toolCallId": "tc-read", "toolName": "read", "content": [{ "type": "text", "text": "export const app = 1;" }], "isError": false, "timestamp": 3 } },
+    { "type": "message_start", "message": { "id": "tr2", "role": "toolResult", "toolCallId": "tc-grep", "toolName": "grep", "content": [{ "type": "text", "text": "src/app.ts:3:TODO fix" }], "isError": false, "timestamp": 4 } },
+    { "type": "message_end", "message": { "id": "tr2", "role": "toolResult", "toolCallId": "tc-grep", "toolName": "grep", "content": [{ "type": "text", "text": "src/app.ts:3:TODO fix" }], "isError": false, "timestamp": 4 } },
+    { "type": "turn_end" },
+    { "type": "agent_end" },
+    { "type": "agent_settled" }
+  ],
+  "projected_events": [
+    { "type": "agent_start" },
+    { "type": "turn_start" },
+    { "type": "message_start", "message": { "id": "a1", "role": "assistant", "content": [], "status": "streaming", "timestamp": 1 } },
+    { "type": "message_update", "assistantMessageEvent": { "type": "text_delta", "contentIndex": 0, "delta": "Checking the file first." } },
+    { "type": "message_update", "assistantMessageEvent": { "type": "toolcall_delta", "contentIndex": 1, "delta": "{\"path\":\"src/app.ts\"}" } },
+    { "type": "message_update", "assistantMessageEvent": { "type": "toolcall_delta", "contentIndex": 2, "delta": "{\"pattern\":\"TODO\"}" } },
+    { "type": "message_end", "message": { "id": "a1", "role": "assistant", "content": [{ "type": "text", "text": "Checking the file first." }, { "type": "toolCall", "toolCallId": "tc-read", "toolName": "read", "input": { "path": "src/app.ts" } }, { "type": "toolCall", "toolCallId": "tc-grep", "toolName": "grep", "input": { "pattern": "TODO" } }], "status": "complete", "stopReason": "toolUse", "timestamp": 2 } },
+    { "type": "tool_execution_start", "toolCallId": "tc-read", "toolName": "read", "args": { "path": "src/app.ts" } },
+    { "type": "tool_execution_update", "toolCallId": "tc-read", "toolName": "read", "args": { "path": "src/app.ts" }, "partialResult": { "content": [{ "type": "text", "text": "export const app" }], "details": { "truncation": { "truncated": false } } } },
+    { "type": "tool_execution_end", "toolCallId": "tc-read", "toolName": "read", "result": { "content": [{ "type": "text", "text": "export const app = 1;" }], "details": { "truncation": { "truncated": false } } }, "isError": false },
+    { "type": "tool_execution_start", "toolCallId": "tc-grep", "toolName": "grep", "args": { "pattern": "TODO" } },
+    { "type": "tool_execution_update", "toolCallId": "tc-grep", "toolName": "grep", "args": { "pattern": "TODO" }, "partialResult": { "content": [{ "type": "text", "text": "src/app.ts:3:TODO fix" }] } },
+    { "type": "tool_execution_end", "toolCallId": "tc-grep", "toolName": "grep", "result": { "content": [{ "type": "text", "text": "src/app.ts:3:TODO fix" }] }, "isError": false },
+    { "type": "message_start", "message": { "id": "tr1", "role": "toolResult", "toolCallId": "tc-read", "toolName": "read", "content": [{ "type": "text", "text": "export const app = 1;" }], "isError": false, "timestamp": 3 } },
+    { "type": "message_end", "message": { "id": "tr1", "role": "toolResult", "toolCallId": "tc-read", "toolName": "read", "content": [{ "type": "text", "text": "export const app = 1;" }], "isError": false, "timestamp": 3 } },
+    { "type": "message_start", "message": { "id": "tr2", "role": "toolResult", "toolCallId": "tc-grep", "toolName": "grep", "content": [{ "type": "text", "text": "src/app.ts:3:TODO fix" }], "isError": false, "timestamp": 4 } },
+    { "type": "message_end", "message": { "id": "tr2", "role": "toolResult", "toolCallId": "tc-grep", "toolName": "grep", "content": [{ "type": "text", "text": "src/app.ts:3:TODO fix" }], "isError": false, "timestamp": 4 } },
+    { "type": "turn_end" },
+    { "type": "agent_end" },
+    { "type": "agent_settled" }
+  ]
+}

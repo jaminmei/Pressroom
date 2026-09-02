@@ -7,6 +7,7 @@ Covers:
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, patch
 
@@ -117,14 +118,14 @@ def _make_workflow(
 
 
 def _patched_get_model_capability(
-    original_method: object,
-) -> object:
+    original_method: Callable[[str, str], dict[str, object] | None],
+) -> Callable[[str, str], dict[str, object] | None]:
     """Return a side_effect callable that intercepts the text-only test model."""
 
     def _side_effect(node_type: str, model_key: str) -> dict[str, object] | None:
         if model_key == _TEXT_ONLY_MODEL_KEY:
             return _TEXT_ONLY_CAPABILITY
-        return original_method(node_type, model_key)  # type: ignore[operator]
+        return original_method(node_type, model_key)
 
     return _side_effect
 
@@ -267,13 +268,12 @@ class TestValidateDynamic:
         assert warns_no_model[0].severity == "info"
 
     def test_cropped_blocks_triggers_vision_check(self, validator: WorkflowValidator) -> None:
-        """image/cropped_blocks from block_selector also triggers vision check."""
-        # Register a temporary block_selector node definition for this test.
-        block_selector_def = NodeDefinition(
-            node_type="processor/block_selector",
-            display_name="Block Selector",
+        """A processor producing image/cropped_blocks triggers the vision check."""
+        cropped_output_def = NodeDefinition(
+            node_type="processor/test-cropped-output",
+            display_name="Test Cropped Output",
             category="processor",
-            description="User block selection from layout detection results",
+            description="Synthetic cropped-image producer used only by this test",
             config_schema={"type": "object", "properties": {}},
             input_types=["application/x-layout-result"],
             input_ports=[
@@ -288,13 +288,13 @@ class TestValidateDynamic:
             max_inputs=1,
             max_outputs=-1,
         )
-        validator._node_registry._by_type["processor/block_selector"] = block_selector_def
+        validator._node_registry._by_type["processor/test-cropped-output"] = cropped_output_def
 
         workflow = WorkflowDefinition(
             nodes=[
                 WorkflowNode(id="n1", type="input/image", config={"file": "$file_0"}),
                 WorkflowNode(id="n2", type="processor/layout_detection", config={}),
-                WorkflowNode(id="n3", type="processor/block_selector", config={}),
+                WorkflowNode(id="n3", type="processor/test-cropped-output", config={}),
                 WorkflowNode(
                     id="n4",
                     type="engine/model",

@@ -20,6 +20,7 @@ PUBLIC_NPM_REGISTRY = "registry.npmjs.org"
 PUBLIC_GIT_HOST = "github.com"
 PUBLIC_NPM_LOCKS = (
     Path("frontend/package-lock.json"),
+    Path("pi_runtime/package-lock.json"),
     Path("website/package-lock.json"),
 )
 PUBLIC_E2E_SUBTREES = {"fixtures", "public"}
@@ -61,6 +62,7 @@ PUBLIC_SCRIPT_FILES = {
     "check_public_boundary_test.py",
     "collect-service-logs.sh",
     "generate-public-fixtures.py",
+    "generate-pressroom-pi-tool-artifact.py",
     "generate_public_fixtures_test.py",
     "init-db.sql",
     "migrate_vlm_to_model.py",
@@ -69,6 +71,10 @@ PUBLIC_SCRIPT_FILES = {
     "prepare_pressroom_release_test.py",
     "rehome-dataset-core.py",
     "rehome-dataset-core_test.py",
+    "summarize_ocr_failure.py",
+    "summarize_ocr_failure_test.py",
+    "validate_pressroom_release_approval.py",
+    "validate_pressroom_release_approval_test.py",
     "start_worker.sh",
     "stress-test.py",
     "test-full-profile-connectivity.sh",
@@ -144,6 +150,20 @@ PUBLIC_WIKI_SUBTREES = {
     "patterns",
     "questions",
 }
+PUBLIC_OPENSPEC_CHANGE_FILES = {
+    ".openspec.yaml",
+    "design.md",
+    "proposal.md",
+    "qa-report.md",
+    "qa-testcases.md",
+    "tasks.md",
+}
+PUBLIC_OPENSPEC_TEMPLATE_FILES = {
+    "design.md",
+    "proposal.md",
+    "spec.md",
+    "tasks.md",
+}
 
 ALLOWED_ROOTS = {
     ".dockerignore",
@@ -159,6 +179,7 @@ ALLOWED_ROOTS = {
     "CODE_OF_CONDUCT.md",
     "CONTRIBUTING.md",
     "Dockerfile.backend",
+    "Dockerfile.pi-runtime",
     "LICENSE",
     "LICENSES",
     "README.md",
@@ -169,11 +190,14 @@ ALLOWED_ROOTS = {
     "alembic",
     "alembic.ini",
     "app",
+    "cli",
     "docker-compose.yml",
     "docs",
     "engines",
     "frontend",
     "memory",
+    "openspec",
+    "pi_runtime",
     "pyproject.toml",
     "requirements-dev.lock",
     "requirements-dev.txt",
@@ -429,6 +453,39 @@ def _is_public_website_path(relative: Path) -> bool:
     return False
 
 
+def _is_public_openspec_name(value: str) -> bool:
+    return re.fullmatch(r"[a-z0-9](?:[a-z0-9._-]*[a-z0-9])?", value) is not None
+
+
+def _is_public_openspec_path(relative: Path) -> bool:
+    parts = relative.parts
+    if relative == Path("openspec/config.yaml"):
+        return True
+    if len(parts) == 4 and parts[:2] == ("openspec", "specs"):
+        return _is_public_openspec_name(parts[2]) and parts[3] == "spec.md"
+    if len(parts) >= 4 and parts[:2] == ("openspec", "schemas"):
+        if not _is_public_openspec_name(parts[2]):
+            return False
+        schema_path = parts[3:]
+        return schema_path == ("schema.yaml",) or (
+            len(schema_path) == 2
+            and schema_path[0] == "templates"
+            and schema_path[1] in PUBLIC_OPENSPEC_TEMPLATE_FILES
+        )
+    if len(parts) < 4 or parts[:2] != ("openspec", "changes"):
+        return False
+    change_index = 3 if parts[2] == "archive" else 2
+    if len(parts) <= change_index or not _is_public_openspec_name(parts[change_index]):
+        return False
+    change_path = parts[change_index + 1 :]
+    return (len(change_path) == 1 and change_path[0] in PUBLIC_OPENSPEC_CHANGE_FILES) or (
+        len(change_path) == 3
+        and change_path[0] == "specs"
+        and _is_public_openspec_name(change_path[1])
+        and change_path[2] == "spec.md"
+    )
+
+
 def check_tree(paths: list[Path], private_patterns: list[re.Pattern[str]]) -> list[str]:
     errors: list[str] = []
     try:
@@ -464,6 +521,9 @@ def check_tree(paths: list[Path], private_patterns: list[re.Pattern[str]]) -> li
             continue
         if parts[0] == "website" and not _is_public_website_path(relative):
             errors.append(f"path is outside the public website allowlist: {relative_posix}")
+            continue
+        if parts[0] == "openspec" and not _is_public_openspec_path(relative):
+            errors.append(f"path is outside the public OpenSpec allowlist: {relative_posix}")
             continue
         if parts[0] == ".claude" and "/".join(parts[1:]) not in PUBLIC_CLAUDE_FILES:
             errors.append(f"path is outside the public Claude allowlist: {relative_posix}")

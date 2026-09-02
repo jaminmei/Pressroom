@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from typing import Final
+from typing import Final, Literal
 
 from pydantic import BaseModel, ConfigDict, JsonValue, field_validator
 from pydantic_core import PydanticCustomError
@@ -126,6 +126,8 @@ class WorkspaceMemberListResponse(WorkspaceApiModel):
 
 
 class WorkspaceAuditEventListResponse(WorkspaceApiModel):
+    implemented: Literal[False] = False
+    status: Literal["not_implemented"] = "not_implemented"
     items: list[dict[str, JsonValue]]
     total: int
 
@@ -136,6 +138,8 @@ class WorkspaceDeletionCountsResponse(WorkspaceApiModel):
     databases: int
     evaluation_runs: int
     task_runs: int
+    files: int
+    pending_storage_cleanups: int
     workspace_providers: int
 
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel
 
@@ -26,3 +27,4 @@ class AuthenticatedContext(BaseModel):
     workspace_id: str | None = None
     role: WorkspaceRole | None = None
     capabilities: frozenset[str] = frozenset()
+    auth_kind: Literal["session", "agent_session_token"] = "session"

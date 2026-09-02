@@ -180,6 +180,8 @@ describe("WorkspaceGeneralPage", () => {
         databases: 0,
         evaluationRuns: 0,
         taskRuns: 0,
+        files: 0,
+        pendingStorageCleanups: 0,
         workspaceProviders: 0,
       },
     });
@@ -344,6 +346,8 @@ describe("WorkspaceGeneralPage", () => {
         databases: 0,
         evaluationRuns: 0,
         taskRuns: 0,
+        files: 0,
+        pendingStorageCleanups: 0,
         workspaceProviders: 0,
       },
     });

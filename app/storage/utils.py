@@ -13,6 +13,15 @@ def ensure_path_within_root(path: str | Path, root: str | Path) -> Path:
     return candidate
 
 
+def resolve_storage_path(path: str | Path, root: str | Path) -> Path:
+    """Resolve an absolute path or a persisted storage key under ``root``."""
+
+    candidate = Path(path)
+    if not candidate.is_absolute():
+        candidate = Path(root) / candidate
+    return ensure_path_within_root(candidate, root)
+
+
 def ensure_path_within_roots(path: str | Path, roots: list[str | Path]) -> Path:
     """Resolve a path and ensure it stays within at least one of the allowed root directories."""
 

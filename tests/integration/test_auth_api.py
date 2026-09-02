@@ -40,8 +40,7 @@ def test_register_login_logout_and_me_flow(auth_client: TestClient) -> None:
     )
 
     assert register_response.status_code == 201
-    register_payload = register_response.json()
-    assert register_payload["data"]["user"]["email"] == "alice@example.com"
+    assert register_response.json()["data"]["user"]["email"] == "alice@example.com"
 
     me_response = auth_client.get("/api/auth/me")
     assert me_response.status_code == 200
@@ -74,3 +73,9 @@ def test_login_rejects_invalid_credentials(auth_client: TestClient) -> None:
 
     assert response.status_code == 401
     assert response.json()["error_code"] == "AUTH_INVALID_CREDENTIALS"
+
+
+def test_user_managed_token_endpoints_are_removed(auth_client: TestClient) -> None:
+    assert auth_client.get("/api/auth/user-tokens").status_code == 404
+    assert auth_client.post("/api/auth/user-tokens", json={}).status_code == 404
+    assert auth_client.delete("/api/auth/user-tokens/ut_obsolete").status_code == 404

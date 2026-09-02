@@ -25,6 +25,9 @@ def _prepare_repo(tmp_path: Path, manifest: str) -> Path:
     frontend = repo / "frontend"
     frontend.mkdir()
     (frontend / "package-lock.json").write_text('{"packages": {}}\n', encoding="utf-8")
+    pi_runtime = repo / "pi_runtime"
+    pi_runtime.mkdir()
+    (pi_runtime / "package-lock.json").write_text('{"packages": {}}\n', encoding="utf-8")
     website = repo / "website"
     website.mkdir()
     (website / "package-lock.json").write_text('{"packages": {}}\n', encoding="utf-8")
@@ -323,6 +326,18 @@ def test_allows_release_provenance_scripts(tmp_path: Path) -> None:
     assert result.returncode == 0
 
 
+def test_allows_release_llm_failure_diagnostic_scripts(tmp_path: Path) -> None:
+    repo = _prepare_repo(tmp_path, "")
+    checker = repo / "scripts/summarize_ocr_failure.py"
+    checker.write_text("raise SystemExit(0)\n", encoding="utf-8")
+    tests = repo / "scripts/summarize_ocr_failure_test.py"
+    tests.write_text("def test_placeholder():\n    pass\n", encoding="utf-8")
+
+    result = _run_tree(repo)
+
+    assert result.returncode == 0
+
+
 def test_rejects_unsafe_placeholder_but_allows_change_member_label(tmp_path: Path) -> None:
     repo = _prepare_repo(tmp_path, "")
     unsafe_placeholder = "change" + "me"
@@ -521,7 +536,11 @@ def test_rejects_symbolic_links_in_source_tree(tmp_path: Path) -> None:
 
 @pytest.mark.parametrize(
     "lockfile",
-    ("frontend/package-lock.json", "website/package-lock.json"),
+    (
+        "frontend/package-lock.json",
+        "pi_runtime/package-lock.json",
+        "website/package-lock.json",
+    ),
 )
 def test_rejects_non_public_npm_resolution(tmp_path: Path, lockfile: str) -> None:
     repo = _prepare_repo(tmp_path, "")
@@ -550,6 +569,50 @@ def test_rejects_missing_website_lock(tmp_path: Path) -> None:
 
     assert result.returncode == 1
     assert "website/package-lock.json is missing" in result.stderr
+
+
+@pytest.mark.parametrize(
+    "relative_path",
+    (
+        "openspec/config.yaml",
+        "openspec/specs/chatbox-shell/spec.md",
+        "openspec/changes/chatbox-v2/proposal.md",
+        "openspec/changes/archive/2026-08-18-chatbox-v1/qa-report.md",
+        "openspec/changes/archive/2026-08-18-chatbox-v1/specs/chatbox-shell/spec.md",
+        "openspec/schemas/github-tracked/schema.yaml",
+        "openspec/schemas/github-tracked/templates/tasks.md",
+    ),
+)
+def test_allows_expected_openspec_artifacts(tmp_path: Path, relative_path: str) -> None:
+    repo = _prepare_repo(tmp_path, "")
+    artifact = repo / relative_path
+    artifact.parent.mkdir(parents=True, exist_ok=True)
+    artifact.write_text("public planning artifact\n", encoding="utf-8")
+
+    result = _run_tree(repo)
+
+    assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.parametrize(
+    "relative_path",
+    (
+        "openspec/private-notes.md",
+        "openspec/changes/archive/2026-08-18-chatbox-v1/runtime.log",
+        "openspec/changes/archive/2026-08-18-chatbox-v1/specs/chatbox-shell/trace.json",
+        "openspec/schemas/github-tracked/templates/internal.md",
+    ),
+)
+def test_rejects_unknown_openspec_artifacts(tmp_path: Path, relative_path: str) -> None:
+    repo = _prepare_repo(tmp_path, "")
+    artifact = repo / relative_path
+    artifact.parent.mkdir(parents=True, exist_ok=True)
+    artifact.write_text("not an approved planning artifact\n", encoding="utf-8")
+
+    result = _run_tree(repo)
+
+    assert result.returncode == 1
+    assert f"path is outside the public OpenSpec allowlist: {relative_path}" in result.stderr
 
 
 def test_artifact_scan_allows_approved_binary_without_requiring_manifest_paths(

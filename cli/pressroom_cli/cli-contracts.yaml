@@ -1,0 +1,45 @@
+schema_version: "0.1"
+
+# Contracts for composite business commands. HTTP-only commands point directly
+# at their FastAPI OpenAPI operation in tool-catalog.yaml.
+contracts:
+  file.delete:
+    input: {$ref: "#/$defs/confirmedIdInput"}
+    output: {$ref: "#/$defs/objectOutput"}
+  workflow.delete:
+    input: {$ref: "#/$defs/confirmedIdInput"}
+    output: {$ref: "#/$defs/objectOutput"}
+  run.wait:
+    input: {$ref: "#/$defs/waitInput"}
+    output: {$ref: "#/$defs/objectOutput"}
+  test-set.delete:
+    input: {$ref: "#/$defs/confirmedIdInput"}
+    output: {$ref: "#/$defs/objectOutput"}
+  test-set.document.delete:
+    input:
+      type: object
+      required: [test_set_id, document_id]
+      properties:
+        test_set_id: {type: string}
+        document_id: {type: string}
+        yes: {type: boolean}
+    output: {$ref: "#/$defs/objectOutput"}
+  evaluation.wait:
+    input: {$ref: "#/$defs/waitInput"}
+    output: {$ref: "#/$defs/objectOutput"}
+$defs:
+  confirmedIdInput:
+    type: object
+    required: [id]
+    properties:
+      id: {type: string}
+      yes: {type: boolean}
+  waitInput:
+    type: object
+    required: [id]
+    properties:
+      id: {type: string}
+      wait_timeout: {type: number, exclusiveMinimum: 0, default: 600}
+      interval: {type: number, exclusiveMinimum: 0, default: 2}
+  objectOutput:
+    type: object

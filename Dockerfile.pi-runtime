@@ -1,0 +1,43 @@
+FROM node:24-slim AS pi-runtime-source
+
+ARG PI_RUNTIME_VERSION=0.84.1
+ARG PI_RUNTIME_SOURCE_SHA256=294d8067eb42327be0db4792d3be792daff588d8fc22549270a972ec9e5407e7
+
+WORKDIR /opt/pi
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates curl \
+    && rm -rf /var/lib/apt/lists/* \
+    && curl --fail --location --show-error \
+        --output /tmp/pi-source.tar.gz \
+        "https://github.com/earendil-works/pi/releases/download/v${PI_RUNTIME_VERSION}/pi-${PI_RUNTIME_VERSION}-source.tar.gz" \
+    && echo "${PI_RUNTIME_SOURCE_SHA256}  /tmp/pi-source.tar.gz" | sha256sum --check --strict \
+    && tar --extract --gzip --file /tmp/pi-source.tar.gz --strip-components=1 \
+    && rm /tmp/pi-source.tar.gz
+
+FROM pi-runtime-source AS pi-runtime-deps
+RUN --mount=type=cache,target=/root/.npm \
+    npm ci --ignore-scripts --no-audit --no-fund --prefer-offline \
+        --maxsockets=4 \
+        --fetch-retries=5 \
+        --fetch-retry-mintimeout=1000 \
+        --fetch-retry-maxtimeout=20000 \
+    && npm run build:offline \
+    && npm prune --omit=dev --ignore-scripts --no-audit --no-fund
+
+FROM node:24-slim
+
+ENV NODE_ENV=production
+ENV PI_OFFLINE=1
+WORKDIR /runtime
+
+RUN groupadd --gid 10004 pi-runtime \
+    && useradd --uid 10004 --gid 10004 --no-create-home --home-dir /nonexistent --shell /usr/sbin/nologin pi-runtime \
+    && install -d -o 10004 -g 10004 /var/lib/pressroom-agent-sessions
+
+COPY pi_runtime /runtime
+COPY --from=pi-runtime-deps /opt/pi/node_modules /runtime/node_modules
+COPY --from=pi-runtime-deps /opt/pi/packages /runtime/packages
+
+USER 10004:10004
+EXPOSE 8080
+CMD ["node", "/runtime/src/server.mjs"]

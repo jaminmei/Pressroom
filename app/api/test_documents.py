@@ -7,21 +7,62 @@ from typing import Annotated, Any, Protocol
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, File, HTTPException, Request, Response, UploadFile
-from fastapi.responses import JSONResponse
+from pydantic import BaseModel, ConfigDict
 
 from app.api.auth import require_workspace_capability
 from app.config import get_settings
+from app.errors import AppError, ErrorCode
 from app.repositories.test_set_repository import TestSetRepository
 from app.services.document_thumbnail import (
     ThumbnailGenerationError,
     UnsupportedThumbnailMimeTypeError,
     generate_document_thumbnail,
 )
+from app.services.storage_cleanup import execute_storage_cleanup_job
 from app.services.workspace_access import ResolvedContext
 from app.storage.test_set_storage import TestSetStorage
 
 router = APIRouter(prefix="/test-sets", tags=["test-documents"])
 logger = logging.getLogger(__name__)
+
+
+class DocumentBatchModel(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+
+class DocumentUploadError(DocumentBatchModel):
+    code: str
+    message: str
+
+
+class DocumentUploadItem(DocumentBatchModel):
+    index: int
+    filename: str
+    status: str
+    document: dict[str, object] | None = None
+    error: DocumentUploadError | None = None
+
+
+class DocumentUploadSummary(DocumentBatchModel):
+    total: int
+    succeeded: int
+    failed: int
+
+
+class DocumentBatchUploadResponse(DocumentBatchModel):
+    status: str
+    summary: DocumentUploadSummary
+    items: list[DocumentUploadItem]
+    uploaded: list[dict[str, object]]
+    errors: list[dict[str, object]]
+
+
+class DocumentDeletionImpactResponse(DocumentBatchModel):
+    document_id: str
+    can_delete: bool
+    ground_truth_versions: int
+    evaluation_results: int
+    active_evaluation_runs: int
 
 
 async def get_test_set_repository(request: Request) -> TestSetRepository:
@@ -113,17 +154,22 @@ async def _resolve_test_set_context(
     return test_set
 
 
-@router.post("/{test_set_id}/documents/upload", response_model=None, status_code=201)
+@router.post(
+    "/{test_set_id}/documents/upload",
+    response_model=DocumentBatchUploadResponse,
+    status_code=201,
+)
 async def upload_documents(
     test_set_id: str,
     files: Annotated[list[UploadFile], File(...)],
     repository: TestSetRepositoryDep,
     storage: TestSetStorageDep,
     context: DocumentUploadContextDep,
-) -> JSONResponse:
+) -> DocumentBatchUploadResponse:
     settings = get_settings()
     uploaded: list[dict[str, object]] = []
     errors: list[dict[str, object]] = []
+    items: list[DocumentUploadItem] = []
 
     await _resolve_test_set_context(
         test_set_id=test_set_id,
@@ -131,52 +177,126 @@ async def upload_documents(
         context=context,
     )
 
-    for file in files:
+    for index, file in enumerate(files):
         mime_type = (file.content_type or "").lower()
         raw_filename = (file.filename or "upload.bin").replace("\\", "/")
         filename = Path(raw_filename).name
 
         if mime_type not in {"application/pdf", "image/png", "image/jpeg", "image/webp"}:
-            errors.append(
-                {
-                    "filename": filename,
-                    "error": f"Unsupported file type: {mime_type or 'unknown'}",
-                }
+            message = f"Unsupported file type: {mime_type or 'unknown'}"
+            error: dict[str, object] = {
+                "filename": filename,
+                "code": "UNSUPPORTED_FILE_TYPE",
+                "error": message,
+            }
+            errors.append(error)
+            items.append(
+                DocumentUploadItem(
+                    index=index,
+                    filename=filename,
+                    status="failed",
+                    error=DocumentUploadError(code="UNSUPPORTED_FILE_TYPE", message=message),
+                )
             )
             continue
 
         content = await file.read()
         if not content:
-            errors.append({"filename": filename, "error": "Empty file"})
+            error = {"filename": filename, "code": "EMPTY_FILE", "error": "Empty file"}
+            errors.append(error)
+            items.append(
+                DocumentUploadItem(
+                    index=index,
+                    filename=filename,
+                    status="failed",
+                    error=DocumentUploadError(code="EMPTY_FILE", message="Empty file"),
+                )
+            )
             continue
 
         max_size_bytes = settings.max_file_size_mb * 1024 * 1024
         if len(content) > max_size_bytes:
-            errors.append({"filename": filename, "error": f"File too large: {filename}"})
+            message = f"File too large: {filename}"
+            error = {"filename": filename, "code": "FILE_TOO_LARGE", "error": message}
+            errors.append(error)
+            items.append(
+                DocumentUploadItem(
+                    index=index,
+                    filename=filename,
+                    status="failed",
+                    error=DocumentUploadError(code="FILE_TOO_LARGE", message=message),
+                )
+            )
             continue
 
         doc_id = f"doc_{uuid4()}"
-        storage_path = await storage.save_document(test_set_id, doc_id, filename, content)
-        page_count = 1 if mime_type == "application/pdf" else None
-        document = await repository.create_test_document(
-            test_set_id=test_set_id,
-            filename=filename,
-            mime_type=mime_type,
-            storage_path=storage_path,
-            size_bytes=len(content),
-            page_count=page_count,
-            document_id=doc_id,
-        )
-        uploaded.append(
-            {
+        storage_path: str | None = None
+        try:
+            storage_path = await storage.save_document(test_set_id, doc_id, filename, content)
+            page_count = 1 if mime_type == "application/pdf" else None
+            document = await repository.create_test_document(
+                test_set_id=test_set_id,
+                filename=filename,
+                mime_type=mime_type,
+                storage_path=storage_path,
+                size_bytes=len(content),
+                page_count=page_count,
+                document_id=doc_id,
+            )
+            payload: dict[str, object] = {
                 "id": document.id,
                 "filename": document.filename,
                 "mime_type": document.mime_type,
                 "size_bytes": document.size_bytes,
             }
-        )
+            uploaded.append(payload)
+            items.append(
+                DocumentUploadItem(
+                    index=index,
+                    filename=filename,
+                    status="succeeded",
+                    document=payload,
+                )
+            )
+        except Exception as exc:  # noqa: BLE001
+            if storage_path is not None:
+                try:
+                    await storage.delete_document(storage_path)
+                except Exception:  # noqa: BLE001
+                    logger.warning("Failed to compensate document upload storage")
+            logger.warning(
+                "Document upload item failed error_type=%s",
+                type(exc).__name__,
+            )
+            message = "Document could not be stored"
+            error = {
+                "filename": filename,
+                "code": "DOCUMENT_UPLOAD_FAILED",
+                "error": message,
+            }
+            errors.append(error)
+            items.append(
+                DocumentUploadItem(
+                    index=index,
+                    filename=filename,
+                    status="failed",
+                    error=DocumentUploadError(code="DOCUMENT_UPLOAD_FAILED", message=message),
+                )
+            )
 
-    return JSONResponse(status_code=201, content={"uploaded": uploaded, "errors": errors})
+    summary = DocumentUploadSummary(
+        total=len(files),
+        succeeded=len(uploaded),
+        failed=len(errors),
+    )
+    batch_status = "success" if not errors else "failed" if not uploaded else "partial"
+    return DocumentBatchUploadResponse(
+        status=batch_status,
+        summary=summary,
+        items=items,
+        uploaded=uploaded,
+        errors=errors,
+    )
 
 
 @router.get("/{test_set_id}/documents", response_model=None)
@@ -338,6 +458,42 @@ async def get_document_thumbnail(
     )
 
 
+@router.get(
+    "/{test_set_id}/documents/{document_id}/deletion-impact",
+    response_model=DocumentDeletionImpactResponse,
+)
+async def get_document_deletion_impact(
+    test_set_id: str,
+    document_id: str,
+    repository: TestSetRepositoryDep,
+    context: DocumentUploadContextDep,
+) -> DocumentDeletionImpactResponse:
+    await _resolve_test_set_context(
+        test_set_id=test_set_id,
+        repository=repository,
+        context=context,
+    )
+    document = await repository.get_test_document(
+        document_id,
+        workspace_id=context.workspace_id,
+    )
+    if document is None or document.test_set_id != test_set_id:
+        raise AppError(ErrorCode.DOCUMENT_NOT_FOUND, "Document not found")
+    impact = await repository.get_document_deletion_impact(
+        document_id,
+        workspace_id=context.workspace_id,
+    )
+    if impact is None:
+        raise AppError(ErrorCode.DOCUMENT_NOT_FOUND, "Document not found")
+    return DocumentDeletionImpactResponse(
+        document_id=impact.document_id,
+        can_delete=impact.can_delete,
+        ground_truth_versions=impact.ground_truth_versions,
+        evaluation_results=impact.evaluation_results,
+        active_evaluation_runs=impact.active_evaluation_runs,
+    )
+
+
 @router.delete("/{test_set_id}/documents/{document_id}", status_code=204)
 async def delete_document(
     test_set_id: str,
@@ -359,25 +515,32 @@ async def delete_document(
     if document is None or document.test_set_id != test_set_id:
         raise HTTPException(status_code=404, detail=f"Document not found: {document_id}")
 
-    await repository.delete_test_document(
+    impact = await repository.get_document_deletion_impact(
         document_id,
         workspace_id=context.workspace_id,
     )
+    if impact is None:
+        raise AppError(ErrorCode.DOCUMENT_NOT_FOUND, "Document not found")
+    if not impact.can_delete:
+        raise AppError(
+            ErrorCode.DOCUMENT_IN_USE,
+            "Document is part of an active evaluation run",
+            details={"active_evaluation_runs": impact.active_evaluation_runs},
+        )
 
-    try:
-        await storage.delete_document(document.storage_path)
-    except Exception as exc:  # noqa: BLE001
-        logger.error(
-            "Failed to clean up storage for deleted document %s error_type=%s",
-            document_id,
-            type(exc).__name__,
-        )
-    try:
-        await storage.delete_document_thumbnails(test_set_id, document_id)
-    except Exception as exc:  # noqa: BLE001
-        logger.error(
-            "Failed to clean up thumbnails for deleted document %s error_type=%s",
-            document_id,
-            type(exc).__name__,
-        )
-    return Response(status_code=204)
+    cleanup_job_id = await repository.delete_test_document(
+        document_id,
+        workspace_id=context.workspace_id,
+    )
+    completed = await execute_storage_cleanup_job(
+        cleanup_job_id,
+        repository=repository,
+        storage=storage,
+    )
+    return Response(
+        status_code=204,
+        headers={
+            "X-Cleanup-Job-Id": cleanup_job_id,
+            "X-Cleanup-Status": "completed" if completed else "pending",
+        },
+    )

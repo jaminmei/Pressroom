@@ -329,6 +329,25 @@ class TestHappyPath:
             _teardown_mock(state)
 
 
+# ---------- HTTPS pinning metadata ----------
+
+
+@pytest.mark.asyncio()
+async def test_https_sni_hostname_remains_a_string_for_httpcore() -> None:
+    def responder(request: httpx.Request) -> httpx.Response:
+        assert request.extensions["sni_hostname"] == "provider.example"
+        return httpx.Response(200, request=request)
+
+    transport = SsrfSafeTransport(
+        inner=httpx.MockTransport(responder),
+        resolver=lambda _host, _port, _settings: "93.184.216.34",
+    )
+    async with httpx.AsyncClient(transport=transport) as client:
+        response = await client.get("https://provider.example/v1/messages")
+
+    assert response.status_code == 200
+
+
 # ---------- 4.5-style: redirect re-validation (moved here from verify self-check) ----------
 
 
