@@ -87,7 +87,7 @@ class SsrfSafeTransport(httpx.AsyncBaseTransport):
         # server_hostname to SSLContext.wrap_socket (httpcore/_async/connection.py:107).
         extensions = dict(request.extensions)
         if request.url.scheme == "https":
-            extensions["sni_hostname"] = host_str.encode("ascii")
+            extensions["sni_hostname"] = host_str
 
         pinned_request = httpx.Request(
             method=request.method,

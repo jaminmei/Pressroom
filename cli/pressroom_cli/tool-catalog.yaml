@@ -1,0 +1,1233 @@
+schema_version: "0.1"
+catalog_status: "draft"
+updated: "2026-08-24"
+canonical_binary: "pr"
+fallback_binary: "pressroom"
+authorization_source: "backend"
+default_output_schema: "pressroom-envelope.v1"
+contract_convention:
+  input_schema: "{id}.input.v1"
+  output_schema: "{id}.output.v1"
+
+# This catalog is a product contract, not an authorization policy. The managed
+# Tool Executor loads only `cli-ready` business tools; backend authorization
+# remains authoritative for every request.
+commands:
+  - id: "file.upload"
+    command: "pr file upload"
+    exposure: "agent-default"
+    status: "cli-ready"
+    transport: "http"
+    method: "POST"
+    path: "/api/files"
+    input_schema_source: "openapi://platform#/paths/~1api~1files/post"
+    output_schema_source: "openapi://platform#/paths/~1api~1files/post/responses"
+    capability: "file.upload"
+    workspace_required: true
+    resource_scope: "workspace-file"
+    side_effect: "create"
+    confirmation: "none"
+    async: false
+    remediation: null
+    test_plan: "cli.contract.file.upload"
+
+  - id: "file.list"
+    command: "pr file list"
+    exposure: "agent-default"
+    status: "cli-ready"
+    transport: "http"
+    method: "GET"
+    path: "/api/files"
+    input_schema_source: "openapi://platform#/paths/~1api~1files/get"
+    output_schema_source: "openapi://platform#/paths/~1api~1files/get/responses"
+    capability: "file.view"
+    workspace_required: true
+    resource_scope: "workspace-file"
+    side_effect: "none"
+    confirmation: "none"
+    async: false
+    remediation: null
+    test_plan: "cli.contract.file.list"
+
+  - id: "file.get"
+    command: "pr file get"
+    exposure: "agent-default"
+    status: "cli-ready"
+    transport: "http"
+    method: "GET"
+    path: "/api/files/{file_id}"
+    input_schema_source: "openapi://platform#/paths/~1api~1files~1{file_id}/get"
+    output_schema_source: "openapi://platform#/paths/~1api~1files~1{file_id}/get/responses"
+    capability: "file.view"
+    workspace_required: true
+    resource_scope: "workspace-file"
+    side_effect: "none"
+    confirmation: "none"
+    async: false
+    remediation: null
+    test_plan: "cli.contract.file.get"
+
+  - id: "file.download"
+    command: "pr file download"
+    exposure: "agent-default"
+    status: "cli-ready"
+    transport: "http"
+    method: "GET"
+    path: "/api/files/{file_id}/content"
+    input_schema_source: "openapi://platform#/paths/~1api~1files~1{file_id}~1content/get"
+    output_schema_source: "openapi://platform#/paths/~1api~1files~1{file_id}~1content/get/responses"
+    capability: "file.view"
+    workspace_required: true
+    resource_scope: "workspace-file"
+    side_effect: "local-file-write"
+    confirmation: "none"
+    async: false
+    remediation: null
+    test_plan: "cli.contract.file.download"
+
+  - id: "file.delete"
+    command: "pr file delete"
+    exposure: "agent-confirmation"
+    status: "cli-ready"
+    transport: "composite"
+    method: "DELETE"
+    path: "/api/files/{file_id}"
+    input_schema_source: "cli://contracts/file.delete/input"
+    output_schema_source: "cli://contracts/file.delete/output"
+    capability: "file.delete"
+    workspace_required: true
+    resource_scope: "workspace-file"
+    side_effect: "delete"
+    confirmation: "required"
+    async: false
+    remediation: null
+    test_plan: "cli.contract.file.delete"
+
+  - id: "workflow.validate"
+    command: "pr workflow validate"
+    exposure: "agent-default"
+    status: "cli-ready"
+    transport: "http"
+    method: "POST"
+    path: "/api/workflows/validate"
+    input_schema_source: "openapi://platform#/paths/~1api~1workflows~1validate/post"
+    output_schema_source: "openapi://platform#/paths/~1api~1workflows~1validate/post/responses"
+    capability: "workflow.edit_draft"
+    workspace_required: true
+    resource_scope: "submitted-definition"
+    side_effect: "provider-probe-possible"
+    confirmation: "none"
+    requires_platform_approval: false
+    cli_requires_yes_flag: false
+    input_transport: "stdin-json"
+    async: false
+    remediation: null
+    test_plan: "cli.contract.workflow.validate"
+
+  - id: "workflow.list"
+    command: "pr workflow list"
+    exposure: "agent-default"
+    status: "cli-ready"
+    transport: "http"
+    method: "GET"
+    path: "/api/workflows"
+    input_schema_source: "openapi://platform#/paths/~1api~1workflows/get"
+    output_schema_source: "openapi://platform#/paths/~1api~1workflows/get/responses"
+    capability: "workflow.view"
+    workspace_required: true
+    resource_scope: "workspace-workflow"
+    side_effect: "none"
+    confirmation: "none"
+    async: false
+    remediation: null
+    test_plan: "cli.contract.workflow.list"
+
+  - id: "workflow.get"
+    command: "pr workflow get"
+    exposure: "agent-default"
+    status: "cli-ready"
+    transport: "http"
+    method: "GET"
+    path: "/api/workflows/{workflow_id}"
+    input_schema_source: "openapi://platform#/paths/~1api~1workflows~1{workflow_id}/get"
+    output_schema_source: "openapi://platform#/paths/~1api~1workflows~1{workflow_id}/get/responses"
+    capability: "workflow.view"
+    workspace_required: true
+    resource_scope: "workspace-workflow"
+    side_effect: "none"
+    confirmation: "none"
+    async: false
+    remediation: null
+    test_plan: "cli.contract.workflow.get"
+
+  - id: "workflow.export"
+    command: "pr workflow export"
+    exposure: "agent-default"
+    status: "cli-ready"
+    transport: "http"
+    method: "GET"
+    path: "/api/workflows/{workflow_id}/export"
+    input_schema_source: "openapi://platform#/paths/~1api~1workflows~1{workflow_id}~1export/get"
+    output_schema_source: "openapi://platform#/paths/~1api~1workflows~1{workflow_id}~1export/get/responses"
+    capability: "workflow.view"
+    workspace_required: true
+    resource_scope: "workspace-workflow"
+    side_effect: "local-file-write"
+    confirmation: "none"
+    async: false
+    remediation: null
+    test_plan: "cli.contract.workflow.export"
+
+  - id: "workflow.create"
+    command: "pr workflow create"
+    exposure: "agent-confirmation"
+    status: "cli-ready"
+    transport: "http"
+    method: "POST"
+    path: "/api/workflows"
+    input_schema_source: "openapi://platform#/paths/~1api~1workflows/post"
+    output_schema_source: "openapi://platform#/paths/~1api~1workflows/post/responses"
+    capability: "workflow.edit_draft"
+    workspace_required: true
+    resource_scope: "workspace-workflow"
+    side_effect: "create"
+    confirmation: "explicit-intent"
+    requires_platform_approval: true
+    cli_requires_yes_flag: false
+    input_transport: "stdin-json"
+    async: false
+    remediation: "canonical-workflow-lifecycle"
+    test_plan: "cli.contract.workflow.create"
+
+  - id: "workflow.update"
+    command: "pr workflow update"
+    exposure: "agent-confirmation"
+    status: "cli-ready"
+    transport: "http"
+    method: "PATCH"
+    path: "/api/workflows/{workflow_id}"
+    input_schema_source: "openapi://platform#/paths/~1api~1workflows~1{workflow_id}/patch"
+    output_schema_source: "openapi://platform#/paths/~1api~1workflows~1{workflow_id}/patch/responses"
+    capability: "workflow.edit_draft"
+    workspace_required: true
+    resource_scope: "workspace-workflow"
+    side_effect: "update"
+    confirmation: "explicit-intent"
+    requires_platform_approval: true
+    cli_requires_yes_flag: false
+    input_transport: "stdin-json"
+    async: false
+    remediation: "canonical-workflow-lifecycle-and-base-version"
+    test_plan: "cli.contract.workflow.update"
+
+  - id: "workflow.import"
+    command: "pr workflow import"
+    exposure: "agent-confirmation"
+    status: "cli-ready"
+    transport: "http"
+    method: "POST"
+    path: "/api/workflows/import"
+    input_schema_source: "openapi://platform#/paths/~1api~1workflows~1import/post"
+    output_schema_source: "openapi://platform#/paths/~1api~1workflows~1import/post/responses"
+    capability: "workflow.edit_draft"
+    workspace_required: true
+    resource_scope: "workspace-workflow"
+    side_effect: "create"
+    confirmation: "explicit-intent"
+    async: false
+    remediation: null
+    test_plan: "cli.contract.workflow.import"
+
+  - id: "workflow.publish"
+    command: "pr workflow publish"
+    exposure: "agent-confirmation"
+    status: "cli-ready"
+    transport: "http"
+    method: "POST"
+    path: "/api/workflows/{workflow_id}/publish"
+    input_schema_source: "openapi://platform#/paths/~1api~1workflows~1{workflow_id}~1publish/post"
+    output_schema_source: "openapi://platform#/paths/~1api~1workflows~1{workflow_id}~1publish/post/responses"
+    capability: "workflow.publish"
+    workspace_required: true
+    resource_scope: "workspace-workflow"
+    side_effect: "publish"
+    confirmation: "required"
+    requires_platform_approval: true
+    cli_requires_yes_flag: true
+    async: false
+    remediation: "canonical-workflow-lifecycle"
+    test_plan: "cli.contract.workflow.publish"
+
+  - id: "workflow.delete"
+    command: "pr workflow delete"
+    exposure: "agent-confirmation"
+    status: "cli-ready"
+    transport: "composite"
+    method: "DELETE"
+    path: "/api/workflows/{workflow_id}"
+    input_schema_source: "cli://contracts/workflow.delete/input"
+    output_schema_source: "cli://contracts/workflow.delete/output"
+    capability: "workflow.publish"
+    workspace_required: true
+    resource_scope: "workspace-workflow"
+    side_effect: "delete"
+    confirmation: "required"
+    requires_platform_approval: true
+    cli_requires_yes_flag: true
+    async: false
+    remediation: "workflow-deletion-impact"
+    test_plan: "cli.contract.workflow.delete"
+
+  - id: "workflow.version.list"
+    command: "pr workflow version list"
+    exposure: "agent-default"
+    status: "cli-ready"
+    transport: "http"
+    method: "GET"
+    path: "/api/workflows/{workflow_id}/versions"
+    input_schema_source: "openapi://platform#/paths/~1api~1workflows~1{workflow_id}~1versions/get"
+    output_schema_source: "openapi://platform#/paths/~1api~1workflows~1{workflow_id}~1versions/get/responses"
+    capability: "workflow.view"
+    workspace_required: true
+    resource_scope: "workspace-workflow"
+    side_effect: "none"
+    confirmation: "none"
+    async: false
+    remediation: "canonical-workflow-selector"
+    test_plan: "cli.contract.workflow.version.list"
+
+  - id: "workflow.version.get"
+    command: "pr workflow version get"
+    exposure: "agent-default"
+    status: "cli-ready"
+    transport: "http"
+    method: "GET"
+    path: "/api/workflows/{workflow_id}/versions/{version}"
+    input_schema_source: "openapi://platform#/paths/~1api~1workflows~1{workflow_id}~1versions~1{version}/get"
+    output_schema_source: "openapi://platform#/paths/~1api~1workflows~1{workflow_id}~1versions~1{version}/get/responses"
+    capability: "workflow.view"
+    workspace_required: true
+    resource_scope: "workspace-workflow"
+    side_effect: "none"
+    confirmation: "none"
+    async: false
+    remediation: "canonical-workflow-selector"
+    test_plan: "cli.contract.workflow.version.get"
+
+  - id: "workflow.version.restore"
+    command: "pr workflow version restore"
+    exposure: "agent-confirmation"
+    status: "cli-ready"
+    transport: "http"
+    method: "POST"
+    path: "/api/workflows/{workflow_id}/versions/{version}/restore"
+    input_schema_source: "openapi://platform#/paths/~1api~1workflows~1{workflow_id}~1versions~1{version}~1restore/post"
+    output_schema_source: "openapi://platform#/paths/~1api~1workflows~1{workflow_id}~1versions~1{version}~1restore/post/responses"
+    capability: "workflow.publish"
+    workspace_required: true
+    resource_scope: "workspace-workflow"
+    side_effect: "create-version"
+    confirmation: "required"
+    requires_platform_approval: true
+    cli_requires_yes_flag: true
+    async: false
+    remediation: "canonical-workflow-restore"
+    test_plan: "cli.contract.workflow.version.restore"
+
+  - id: "workflow.execute"
+    command: "pr workflow execute"
+    exposure: "agent-confirmation"
+    status: "cli-ready"
+    transport: "http"
+    method: "POST"
+    path: "/api/workflows/{workflow_id}/execute"
+    input_schema_source: "openapi://platform#/paths/~1api~1workflows~1{workflow_id}~1execute/post"
+    output_schema_source: "openapi://platform#/paths/~1api~1workflows~1{workflow_id}~1execute/post/responses"
+    capability: "workflow.run"
+    workspace_required: true
+    resource_scope: "workspace-workflow"
+    side_effect: "create-run"
+    confirmation: "required"
+    requires_platform_approval: true
+    cli_requires_yes_flag: true
+    async: true
+    remediation: "formal-file-resource-and-run-created-contract"
+    test_plan: "cli.contract.workflow.execute"
+
+  - id: "workflow.draft-run"
+    command: "pr workflow draft-run"
+    exposure: "agent-confirmation"
+    status: "cli-ready"
+    transport: "http"
+    method: "POST"
+    path: "/api/workflow-draft-runs"
+    input_schema_source: "openapi://platform#/paths/~1api~1workflow-draft-runs/post"
+    output_schema_source: "openapi://platform#/paths/~1api~1workflow-draft-runs/post/responses"
+    capability: "workflow.edit_draft+workflow.run"
+    workspace_required: true
+    resource_scope: "submitted-definition"
+    side_effect: "create-run"
+    confirmation: "explicit-intent"
+    requires_platform_approval: true
+    cli_requires_yes_flag: true
+    input_transport: "stdin-json"
+    async: true
+    remediation: "persisted-draft-run-split"
+    test_plan: "cli.contract.workflow.draft-run"
+
+  - id: "workflow.node-run"
+    command: "pr workflow node-run"
+    exposure: "agent-confirmation"
+    status: "cli-ready"
+    transport: "http"
+    method: "POST"
+    path: "/api/workflow-draft-runs/node"
+    input_schema_source: "openapi://platform#/paths/~1api~1workflow-draft-runs~1node/post"
+    output_schema_source: "openapi://platform#/paths/~1api~1workflow-draft-runs~1node/post/responses"
+    capability: "workflow.edit_draft+workflow.run"
+    workspace_required: true
+    resource_scope: "submitted-definition"
+    side_effect: "create-run"
+    confirmation: "explicit-intent"
+    requires_platform_approval: true
+    cli_requires_yes_flag: true
+    input_transport: "stdin-json"
+    async: true
+    remediation: "persisted-draft-run-split"
+    test_plan: "cli.contract.workflow.node-run"
+
+  - id: "run.list"
+    command: "pr run list"
+    exposure: "agent-default"
+    status: "cli-ready"
+    transport: "http"
+    method: "GET"
+    path: "/api/tasks/history"
+    input_schema_source: "openapi://platform#/paths/~1api~1tasks~1history/get"
+    output_schema_source: "openapi://platform#/paths/~1api~1tasks~1history/get/responses"
+    capability: "run.view"
+    workspace_required: true
+    resource_scope: "workspace-run"
+    side_effect: "none"
+    confirmation: "none"
+    async: false
+    remediation: null
+    test_plan: "cli.contract.run.list"
+
+  - id: "run.get"
+    command: "pr run get"
+    exposure: "agent-default"
+    status: "cli-ready"
+    transport: "http"
+    method: "GET"
+    path: "/api/tasks/{run_id}"
+    input_schema_source: "openapi://platform#/paths/~1api~1tasks~1{task_id}/get"
+    output_schema_source: "openapi://platform#/paths/~1api~1tasks~1{task_id}/get/responses"
+    capability: "run.view"
+    workspace_required: true
+    resource_scope: "workspace-run"
+    side_effect: "none"
+    confirmation: "none"
+    async: false
+    remediation: null
+    test_plan: "cli.contract.run.get"
+
+  - id: "run.wait"
+    command: "pr run wait"
+    exposure: "agent-default"
+    status: "cli-ready"
+    transport: "composite"
+    method: "GET"
+    path: "/api/tasks/{run_id}"
+    input_schema_source: "cli://contracts/run.wait/input"
+    output_schema_source: "cli://contracts/run.wait/output"
+    capability: "run.view"
+    workspace_required: true
+    resource_scope: "workspace-run"
+    side_effect: "none"
+    confirmation: "none"
+    async: true
+    remediation: null
+    test_plan: "cli.contract.run.wait"
+
+  - id: "run.results"
+    command: "pr run results"
+    exposure: "agent-default"
+    status: "cli-ready"
+    transport: "http"
+    method: "GET"
+    path: "/api/tasks/{run_id}/results"
+    input_schema_source: "openapi://platform#/paths/~1api~1tasks~1{task_id}~1results/get"
+    output_schema_source: "openapi://platform#/paths/~1api~1tasks~1{task_id}~1results/get/responses"
+    capability: "run.view"
+    workspace_required: true
+    resource_scope: "workspace-run"
+    side_effect: "none"
+    confirmation: "none"
+    async: false
+    remediation: null
+    test_plan: "cli.contract.run.results"
+
+  - id: "run.download"
+    command: "pr run download"
+    exposure: "agent-default"
+    status: "cli-ready"
+    transport: "http"
+    method: "GET"
+    path: "/api/tasks/{run_id}/results/{result_id}/download"
+    input_schema_source: "openapi://platform#/paths/~1api~1tasks~1{task_id}~1results~1{result_id}~1download/get"
+    output_schema_source: "openapi://platform#/paths/~1api~1tasks~1{task_id}~1results~1{result_id}~1download/get/responses"
+    capability: "run.view"
+    workspace_required: true
+    resource_scope: "workspace-run"
+    side_effect: "local-file-write"
+    confirmation: "none"
+    async: false
+    remediation: null
+    test_plan: "cli.contract.run.download"
+
+  - id: "run.cancel"
+    command: "pr run cancel"
+    exposure: "agent-confirmation"
+    status: "cli-ready"
+    transport: "http"
+    method: "DELETE"
+    path: "/api/tasks/{run_id}"
+    input_schema_source: "openapi://platform#/paths/~1api~1tasks~1{task_id}/delete"
+    output_schema_source: "openapi://platform#/paths/~1api~1tasks~1{task_id}/delete/responses"
+    capability: "run.cancel"
+    workspace_required: true
+    resource_scope: "workspace-run"
+    side_effect: "control-run"
+    confirmation: "required"
+    requires_platform_approval: true
+    cli_requires_yes_flag: true
+    async: false
+    remediation: "durable-run-control"
+    test_plan: "cli.contract.run.cancel"
+
+  - id: "run.retry"
+    command: "pr run retry"
+    exposure: "agent-confirmation"
+    status: "cli-ready"
+    transport: "http"
+    method: "POST"
+    path: "/api/tasks/{run_id}/retry"
+    input_schema_source: "openapi://platform#/paths/~1api~1tasks~1{task_id}~1retry/post"
+    output_schema_source: "openapi://platform#/paths/~1api~1tasks~1{task_id}~1retry/post/responses"
+    capability: "run.cancel"
+    workspace_required: true
+    resource_scope: "workspace-run"
+    side_effect: "create-or-update-run"
+    confirmation: "explicit-intent"
+    requires_platform_approval: true
+    cli_requires_yes_flag: true
+    async: true
+    remediation: "durable-run-control-and-queue-parity"
+    test_plan: "cli.contract.run.retry"
+
+  - id: "run.reset"
+    command: "pr run reset"
+    exposure: "agent-confirmation"
+    status: "deferred"
+    transport: "http"
+    method: "POST"
+    path: "/api/tasks/{run_id}/reset"
+    input_schema_source: "openapi://platform#/paths/~1api~1tasks~1{task_id}~1reset/post"
+    output_schema_source: "openapi://platform#/paths/~1api~1tasks~1{task_id}~1reset/post/responses"
+    capability: "run.cancel"
+    workspace_required: true
+    resource_scope: "workspace-run"
+    side_effect: "destructive-reset"
+    confirmation: "required"
+    async: false
+    remediation: "durable-run-reset-and-impact"
+    test_plan: "cli.contract.run.reset"
+
+  - id: "run.node.get"
+    command: "pr run node get"
+    exposure: "agent-default"
+    status: "cli-ready"
+    transport: "http"
+    method: "GET"
+    path: "/api/tasks/{run_id}/nodes/{node_id}/result"
+    input_schema_source: "openapi://platform#/paths/~1api~1tasks~1{task_id}~1nodes~1{node_id}~1result/get"
+    output_schema_source: "openapi://platform#/paths/~1api~1tasks~1{task_id}~1nodes~1{node_id}~1result/get/responses"
+    capability: "run.view"
+    workspace_required: true
+    resource_scope: "workspace-run-node"
+    side_effect: "none"
+    confirmation: "none"
+    async: false
+    remediation: null
+    test_plan: "cli.contract.run.node.get"
+
+  - id: "run.node.image"
+    command: "pr run node image"
+    exposure: "agent-default"
+    status: "cli-ready"
+    transport: "http"
+    method: "GET"
+    path: "/api/tasks/{run_id}/nodes/{node_id}/image"
+    input_schema_source: "openapi://platform#/paths/~1api~1tasks~1{task_id}~1nodes~1{node_id}~1image/get"
+    output_schema_source: "openapi://platform#/paths/~1api~1tasks~1{task_id}~1nodes~1{node_id}~1image/get/responses"
+    capability: "run.view"
+    workspace_required: true
+    resource_scope: "workspace-run-node"
+    side_effect: "local-file-write"
+    confirmation: "none"
+    async: false
+    remediation: null
+    test_plan: "cli.contract.run.node.image"
+
+  - id: "run.node.retry"
+    command: "pr run node retry"
+    exposure: "agent-confirmation"
+    status: "deferred"
+    transport: "http"
+    method: "POST"
+    path: "/api/tasks/{run_id}/nodes/{node_id}/retry"
+    input_schema_source: "openapi://platform#/paths/~1api~1tasks~1{task_id}~1nodes~1{node_id}~1retry/post"
+    output_schema_source: "openapi://platform#/paths/~1api~1tasks~1{task_id}~1nodes~1{node_id}~1retry/post/responses"
+    capability: "run.cancel"
+    workspace_required: true
+    resource_scope: "workspace-run-node"
+    side_effect: "create-or-update-run"
+    confirmation: "explicit-intent"
+    async: true
+    remediation: "durable-run-control-and-queue-parity"
+    test_plan: "cli.contract.run.node.retry"
+
+  - id: "run.node.rerun"
+    command: "pr run node rerun"
+    exposure: "agent-confirmation"
+    status: "deferred"
+    transport: "http"
+    method: "POST"
+    path: "/api/tasks/{run_id}/nodes/{node_id}/rerun"
+    input_schema_source: "openapi://platform#/paths/~1api~1tasks~1{task_id}~1nodes~1{node_id}~1rerun/post"
+    output_schema_source: "openapi://platform#/paths/~1api~1tasks~1{task_id}~1nodes~1{node_id}~1rerun/post/responses"
+    capability: "run.cancel"
+    workspace_required: true
+    resource_scope: "workspace-run-node"
+    side_effect: "replace-downstream-results"
+    confirmation: "required"
+    async: true
+    remediation: "durable-run-control-and-lineage"
+    test_plan: "cli.contract.run.node.rerun"
+
+  - id: "test-set.list"
+    command: "pr test-set list"
+    exposure: "agent-default"
+    status: "cli-ready"
+    transport: "http"
+    method: "GET"
+    path: "/api/test-sets"
+    input_schema_source: "openapi://platform#/paths/~1api~1test-sets/get"
+    output_schema_source: "openapi://platform#/paths/~1api~1test-sets/get/responses"
+    capability: "dataset.view"
+    workspace_required: true
+    resource_scope: "workspace-test-set"
+    side_effect: "none"
+    confirmation: "none"
+    async: false
+    remediation: null
+    test_plan: "cli.contract.test-set.list"
+
+  - id: "test-set.get"
+    command: "pr test-set get"
+    exposure: "agent-default"
+    status: "cli-ready"
+    transport: "http"
+    method: "GET"
+    path: "/api/test-sets/{test_set_id}"
+    input_schema_source: "openapi://platform#/paths/~1api~1test-sets~1{test_set_id}/get"
+    output_schema_source: "openapi://platform#/paths/~1api~1test-sets~1{test_set_id}/get/responses"
+    capability: "dataset.view"
+    workspace_required: true
+    resource_scope: "workspace-test-set"
+    side_effect: "none"
+    confirmation: "none"
+    async: false
+    remediation: null
+    test_plan: "cli.contract.test-set.get"
+
+  - id: "test-set.create"
+    command: "pr test-set create"
+    exposure: "agent-confirmation"
+    status: "cli-ready"
+    transport: "http"
+    method: "POST"
+    path: "/api/test-sets"
+    input_schema_source: "openapi://platform#/paths/~1api~1test-sets/post"
+    output_schema_source: "openapi://platform#/paths/~1api~1test-sets/post/responses"
+    capability: "dataset.create"
+    workspace_required: true
+    resource_scope: "workspace-test-set"
+    side_effect: "create"
+    confirmation: "explicit-intent"
+    async: false
+    remediation: null
+    test_plan: "cli.contract.test-set.create"
+
+  - id: "test-set.update"
+    command: "pr test-set update"
+    exposure: "agent-confirmation"
+    status: "cli-ready"
+    transport: "http"
+    method: "PATCH"
+    path: "/api/test-sets/{test_set_id}"
+    input_schema_source: "openapi://platform#/paths/~1api~1test-sets~1{test_set_id}/patch"
+    output_schema_source: "openapi://platform#/paths/~1api~1test-sets~1{test_set_id}/patch/responses"
+    capability: "dataset.create"
+    workspace_required: true
+    resource_scope: "workspace-test-set"
+    side_effect: "update"
+    confirmation: "explicit-intent"
+    async: false
+    remediation: null
+    test_plan: "cli.contract.test-set.update"
+
+  - id: "test-set.delete"
+    command: "pr test-set delete"
+    exposure: "agent-confirmation"
+    status: "cli-ready"
+    transport: "composite"
+    method: "DELETE"
+    path: "/api/test-sets/{test_set_id}"
+    input_schema_source: "cli://contracts/test-set.delete/input"
+    output_schema_source: "cli://contracts/test-set.delete/output"
+    capability: "dataset.create"
+    workspace_required: true
+    resource_scope: "workspace-test-set"
+    side_effect: "delete"
+    confirmation: "required"
+    async: false
+    remediation: "test-set-deletion-impact"
+    test_plan: "cli.contract.test-set.delete"
+
+  - id: "test-set.document.list"
+    command: "pr test-set document list"
+    exposure: "agent-default"
+    status: "cli-ready"
+    transport: "http"
+    method: "GET"
+    path: "/api/test-sets/{test_set_id}/documents"
+    input_schema_source: "openapi://platform#/paths/~1api~1test-sets~1{test_set_id}~1documents/get"
+    output_schema_source: "openapi://platform#/paths/~1api~1test-sets~1{test_set_id}~1documents/get/responses"
+    capability: "dataset.view"
+    workspace_required: true
+    resource_scope: "workspace-test-set-document"
+    side_effect: "none"
+    confirmation: "none"
+    async: false
+    remediation: null
+    test_plan: "cli.contract.test-set.document.list"
+
+  - id: "test-set.document.get"
+    command: "pr test-set document get"
+    exposure: "agent-default"
+    status: "cli-ready"
+    transport: "http"
+    method: "GET"
+    path: "/api/test-sets/{test_set_id}/documents/{document_id}"
+    input_schema_source: "openapi://platform#/paths/~1api~1test-sets~1{test_set_id}~1documents~1{document_id}/get"
+    output_schema_source: "openapi://platform#/paths/~1api~1test-sets~1{test_set_id}~1documents~1{document_id}/get/responses"
+    capability: "dataset.view"
+    workspace_required: true
+    resource_scope: "workspace-test-set-document"
+    side_effect: "none"
+    confirmation: "none"
+    async: false
+    remediation: null
+    test_plan: "cli.contract.test-set.document.get"
+
+  - id: "test-set.document.download"
+    command: "pr test-set document download"
+    exposure: "agent-default"
+    status: "cli-ready"
+    transport: "http"
+    method: "GET"
+    path: "/api/test-sets/{test_set_id}/documents/{document_id}/file"
+    input_schema_source: "openapi://platform#/paths/~1api~1test-sets~1{test_set_id}~1documents~1{document_id}~1file/get"
+    output_schema_source: "openapi://platform#/paths/~1api~1test-sets~1{test_set_id}~1documents~1{document_id}~1file/get/responses"
+    capability: "dataset.view"
+    workspace_required: true
+    resource_scope: "workspace-test-set-document"
+    side_effect: "local-file-write"
+    confirmation: "none"
+    async: false
+    remediation: null
+    test_plan: "cli.contract.test-set.document.download"
+
+  - id: "test-set.document.thumbnail"
+    command: "pr test-set document thumbnail"
+    exposure: "agent-default"
+    status: "cli-ready"
+    transport: "http"
+    method: "GET"
+    path: "/api/test-sets/{test_set_id}/documents/{document_id}/thumbnail"
+    input_schema_source: "openapi://platform#/paths/~1api~1test-sets~1{test_set_id}~1documents~1{document_id}~1thumbnail/get"
+    output_schema_source: "openapi://platform#/paths/~1api~1test-sets~1{test_set_id}~1documents~1{document_id}~1thumbnail/get/responses"
+    capability: "dataset.view"
+    workspace_required: true
+    resource_scope: "workspace-test-set-document"
+    side_effect: "local-file-write"
+    confirmation: "none"
+    async: false
+    remediation: null
+    test_plan: "cli.contract.test-set.document.thumbnail"
+
+  - id: "test-set.document.upload"
+    command: "pr test-set document upload"
+    exposure: "agent-confirmation"
+    status: "cli-ready"
+    transport: "http"
+    method: "POST"
+    path: "/api/test-sets/{test_set_id}/documents/upload"
+    input_schema_source: "openapi://platform#/paths/~1api~1test-sets~1{test_set_id}~1documents~1upload/post"
+    output_schema_source: "openapi://platform#/paths/~1api~1test-sets~1{test_set_id}~1documents~1upload/post/responses"
+    capability: "document.upload"
+    workspace_required: true
+    resource_scope: "workspace-test-set-document"
+    side_effect: "batch-create"
+    confirmation: "explicit-intent"
+    async: false
+    remediation: "stable-batch-summary"
+    test_plan: "cli.contract.test-set.document.upload"
+
+  - id: "test-set.document.delete"
+    command: "pr test-set document delete"
+    exposure: "agent-confirmation"
+    status: "cli-ready"
+    transport: "composite"
+    method: "DELETE"
+    path: "/api/test-sets/{test_set_id}/documents/{document_id}"
+    input_schema_source: "cli://contracts/test-set.document.delete/input"
+    output_schema_source: "cli://contracts/test-set.document.delete/output"
+    capability: "document.upload"
+    workspace_required: true
+    resource_scope: "workspace-test-set-document"
+    side_effect: "delete"
+    confirmation: "required"
+    async: false
+    remediation: "document-deletion-impact"
+    test_plan: "cli.contract.test-set.document.delete"
+
+  - id: "ground-truth.get"
+    command: "pr ground-truth get"
+    exposure: "agent-default"
+    status: "cli-ready"
+    transport: "http"
+    method: "GET"
+    path: "/api/test-sets/{test_set_id}/documents/{document_id}/ground-truth"
+    input_schema_source: "openapi://platform#/paths/~1api~1test-sets~1{test_set_id}~1documents~1{document_id}~1ground-truth/get"
+    output_schema_source: "openapi://platform#/paths/~1api~1test-sets~1{test_set_id}~1documents~1{document_id}~1ground-truth/get/responses"
+    capability: "dataset.view"
+    workspace_required: true
+    resource_scope: "workspace-document-ground-truth"
+    side_effect: "none"
+    confirmation: "none"
+    async: false
+    remediation: null
+    test_plan: "cli.contract.ground-truth.get"
+
+  - id: "ground-truth.version.list"
+    command: "pr ground-truth version list"
+    exposure: "agent-default"
+    status: "cli-ready"
+    transport: "http"
+    method: "GET"
+    path: "/api/test-sets/{test_set_id}/documents/{document_id}/ground-truth/versions"
+    input_schema_source: "openapi://platform#/paths/~1api~1test-sets~1{test_set_id}~1documents~1{document_id}~1ground-truth~1versions/get"
+    output_schema_source: "openapi://platform#/paths/~1api~1test-sets~1{test_set_id}~1documents~1{document_id}~1ground-truth~1versions/get/responses"
+    capability: "dataset.view"
+    workspace_required: true
+    resource_scope: "workspace-document-ground-truth"
+    side_effect: "none"
+    confirmation: "none"
+    async: false
+    remediation: null
+    test_plan: "cli.contract.ground-truth.version.list"
+
+  - id: "ground-truth.version.get"
+    command: "pr ground-truth version get"
+    exposure: "agent-default"
+    status: "cli-ready"
+    transport: "http"
+    method: "GET"
+    path: "/api/test-sets/{test_set_id}/documents/{document_id}/ground-truth/versions/{version}"
+    input_schema_source: "openapi://platform#/paths/~1api~1test-sets~1{test_set_id}~1documents~1{document_id}~1ground-truth~1versions~1{version}/get"
+    output_schema_source: "openapi://platform#/paths/~1api~1test-sets~1{test_set_id}~1documents~1{document_id}~1ground-truth~1versions~1{version}/get/responses"
+    capability: "dataset.view"
+    workspace_required: true
+    resource_scope: "workspace-document-ground-truth"
+    side_effect: "none"
+    confirmation: "none"
+    async: false
+    remediation: null
+    test_plan: "cli.contract.ground-truth.version.get"
+
+  - id: "ground-truth.upload"
+    command: "pr ground-truth upload"
+    exposure: "agent-confirmation"
+    status: "cli-ready"
+    transport: "http"
+    method: "POST"
+    path: "/api/test-sets/{test_set_id}/documents/{document_id}/ground-truth"
+    input_schema_source: "openapi://platform#/paths/~1api~1test-sets~1{test_set_id}~1documents~1{document_id}~1ground-truth/post"
+    output_schema_source: "openapi://platform#/paths/~1api~1test-sets~1{test_set_id}~1documents~1{document_id}~1ground-truth/post/responses"
+    capability: "ground_truth.manage"
+    workspace_required: true
+    resource_scope: "workspace-document-ground-truth"
+    side_effect: "create-version"
+    confirmation: "explicit-intent"
+    async: false
+    remediation: null
+    test_plan: "cli.contract.ground-truth.upload"
+
+  - id: "evaluation.list"
+    command: "pr evaluation list"
+    exposure: "agent-default"
+    status: "cli-ready"
+    transport: "http"
+    method: "GET"
+    path: "/api/test-sets/{test_set_id}/evaluation-runs"
+    input_schema_source: "openapi://platform#/paths/~1api~1test-sets~1{test_set_id}~1evaluation-runs/get"
+    output_schema_source: "openapi://platform#/paths/~1api~1test-sets~1{test_set_id}~1evaluation-runs/get/responses"
+    capability: "run.view"
+    workspace_required: true
+    resource_scope: "workspace-evaluation"
+    side_effect: "none"
+    confirmation: "none"
+    async: false
+    remediation: null
+    test_plan: "cli.contract.evaluation.list"
+
+  - id: "evaluation.get"
+    command: "pr evaluation get"
+    exposure: "agent-default"
+    status: "cli-ready"
+    transport: "http"
+    method: "GET"
+    path: "/api/evaluation-runs/{evaluation_id}"
+    input_schema_source: "openapi://platform#/paths/~1api~1evaluation-runs~1{run_id}/get"
+    output_schema_source: "openapi://platform#/paths/~1api~1evaluation-runs~1{run_id}/get/responses"
+    capability: "run.view"
+    workspace_required: true
+    resource_scope: "workspace-evaluation"
+    side_effect: "none"
+    confirmation: "none"
+    async: false
+    remediation: null
+    test_plan: "cli.contract.evaluation.get"
+
+  - id: "evaluation.wait"
+    command: "pr evaluation wait"
+    exposure: "agent-default"
+    status: "cli-ready"
+    transport: "composite"
+    method: "GET"
+    path: "/api/evaluation-runs/{evaluation_id}"
+    input_schema_source: "cli://contracts/evaluation.wait/input"
+    output_schema_source: "cli://contracts/evaluation.wait/output"
+    capability: "run.view"
+    workspace_required: true
+    resource_scope: "workspace-evaluation"
+    side_effect: "none"
+    confirmation: "none"
+    async: true
+    remediation: null
+    test_plan: "cli.contract.evaluation.wait"
+
+  - id: "evaluation.results"
+    command: "pr evaluation results"
+    exposure: "agent-default"
+    status: "cli-ready"
+    transport: "http"
+    method: "GET"
+    path: "/api/evaluation-runs/{evaluation_id}/results"
+    input_schema_source: "openapi://platform#/paths/~1api~1evaluation-runs~1{run_id}~1results/get"
+    output_schema_source: "openapi://platform#/paths/~1api~1evaluation-runs~1{run_id}~1results/get/responses"
+    capability: "run.view"
+    workspace_required: true
+    resource_scope: "workspace-evaluation"
+    side_effect: "none"
+    confirmation: "none"
+    async: false
+    remediation: null
+    test_plan: "cli.contract.evaluation.results"
+
+  - id: "evaluation.result"
+    command: "pr evaluation result"
+    exposure: "agent-default"
+    status: "cli-ready"
+    transport: "http"
+    method: "GET"
+    path: "/api/evaluation-runs/{evaluation_id}/results/{result_id}"
+    input_schema_source: "openapi://platform#/paths/~1api~1evaluation-runs~1{run_id}~1results~1{result_id}/get"
+    output_schema_source: "openapi://platform#/paths/~1api~1evaluation-runs~1{run_id}~1results~1{result_id}/get/responses"
+    capability: "run.view"
+    workspace_required: true
+    resource_scope: "workspace-evaluation-result"
+    side_effect: "none"
+    confirmation: "none"
+    async: false
+    remediation: null
+    test_plan: "cli.contract.evaluation.result"
+
+  - id: "evaluation.create"
+    command: "pr evaluation create"
+    exposure: "agent-confirmation"
+    status: "cli-ready"
+    transport: "http"
+    method: "POST"
+    path: "/api/test-sets/{test_set_id}/evaluation-runs"
+    input_schema_source: "openapi://platform#/paths/~1api~1test-sets~1{test_set_id}~1evaluation-runs/post"
+    output_schema_source: "openapi://platform#/paths/~1api~1test-sets~1{test_set_id}~1evaluation-runs/post/responses"
+    capability: "workflow.run"
+    workspace_required: true
+    resource_scope: "workspace-evaluation"
+    side_effect: "create-run"
+    confirmation: "explicit-intent"
+    requires_platform_approval: true
+    cli_requires_yes_flag: true
+    async: true
+    remediation: null
+    test_plan: "cli.contract.evaluation.create"
+
+  - id: "evaluation.cancel"
+    command: "pr evaluation cancel"
+    exposure: "agent-confirmation"
+    status: "cli-ready"
+    transport: "http"
+    method: "POST"
+    path: "/api/evaluation-runs/{evaluation_id}/cancel"
+    input_schema_source: "openapi://platform#/paths/~1api~1evaluation-runs~1{run_id}~1cancel/post"
+    output_schema_source: "openapi://platform#/paths/~1api~1evaluation-runs~1{run_id}~1cancel/post/responses"
+    capability: "run.cancel"
+    workspace_required: true
+    resource_scope: "workspace-evaluation"
+    side_effect: "control-run"
+    confirmation: "required"
+    requires_platform_approval: true
+    cli_requires_yes_flag: true
+    async: false
+    remediation: null
+    test_plan: "cli.contract.evaluation.cancel"
+
+  - id: "evaluation.comparison.get"
+    command: "pr evaluation comparison get"
+    exposure: "agent-default"
+    status: "cli-ready"
+    transport: "http"
+    method: "GET"
+    path: "/api/evaluation-runs/{evaluation_id}/results/{result_id}/comparison"
+    input_schema_source: "openapi://platform#/paths/~1api~1evaluation-runs~1{run_id}~1results~1{result_id}~1comparison/get"
+    output_schema_source: "openapi://platform#/paths/~1api~1evaluation-runs~1{run_id}~1results~1{result_id}~1comparison/get/responses"
+    capability: "run.view"
+    workspace_required: true
+    resource_scope: "workspace-evaluation-result"
+    side_effect: "none"
+    confirmation: "none"
+    async: false
+    remediation: "comparison-read-write-split"
+    test_plan: "cli.contract.evaluation.comparison.get"
+
+  - id: "evaluation.comparison.refresh"
+    command: "pr evaluation comparison refresh"
+    exposure: "agent-confirmation"
+    status: "cli-ready"
+    transport: "http"
+    method: "POST"
+    path: "/api/evaluation-runs/{evaluation_id}/results/{result_id}/comparison"
+    input_schema_source: "openapi://platform#/paths/~1api~1evaluation-runs~1{run_id}~1results~1{result_id}~1comparison/post"
+    output_schema_source: "openapi://platform#/paths/~1api~1evaluation-runs~1{run_id}~1results~1{result_id}~1comparison/post/responses"
+    capability: "comparison.refresh"
+    workspace_required: true
+    resource_scope: "workspace-evaluation-result"
+    side_effect: "update-comparison"
+    confirmation: "explicit-intent"
+    async: false
+    remediation: "comparison-read-write-split-and-capability-review"
+    test_plan: "cli.contract.evaluation.comparison.refresh"
+
+  - id: "provider.list"
+    command: "pr provider list"
+    exposure: "agent-default"
+    status: "cli-ready"
+    transport: "http"
+    method: "GET"
+    path: "/api/providers"
+    input_schema_source: "openapi://platform#/paths/~1api~1providers/get"
+    output_schema_source: "openapi://platform#/paths/~1api~1providers/get/responses"
+    capability: "provider.view"
+    workspace_required: true
+    resource_scope: "workspace-provider"
+    side_effect: "none"
+    confirmation: "none"
+    async: false
+    remediation: null
+    test_plan: "cli.contract.provider.list"
+
+  - id: "provider.get"
+    command: "pr provider get"
+    exposure: "agent-default"
+    status: "cli-ready"
+    transport: "http"
+    method: "GET"
+    path: "/api/providers/{provider_id}"
+    input_schema_source: "openapi://platform#/paths/~1api~1providers~1{provider_id}/get"
+    output_schema_source: "openapi://platform#/paths/~1api~1providers~1{provider_id}/get/responses"
+    capability: "provider.view"
+    workspace_required: true
+    resource_scope: "workspace-provider"
+    side_effect: "none"
+    confirmation: "none"
+    async: false
+    remediation: null
+    test_plan: "cli.contract.provider.get"
+
+  - id: "provider.model.list"
+    command: "pr provider model list"
+    exposure: "agent-default"
+    status: "cli-ready"
+    transport: "http"
+    method: "GET"
+    path: "/api/models"
+    input_schema_source: "openapi://platform#/paths/~1api~1models/get"
+    output_schema_source: "openapi://platform#/paths/~1api~1models/get/responses"
+    capability: "provider.view"
+    workspace_required: true
+    resource_scope: "workspace-provider-model"
+    side_effect: "none"
+    confirmation: "none"
+    async: false
+    remediation: null
+    test_plan: "cli.contract.provider.model.list"
+
+  - id: "provider.test"
+    command: "pr provider test"
+    exposure: "agent-confirmation"
+    status: "cli-ready"
+    transport: "http"
+    method: "POST"
+    path: "/api/providers/{provider_id}/test"
+    input_schema_source: "openapi://platform#/paths/~1api~1providers~1{provider_id}~1test/post"
+    output_schema_source: "openapi://platform#/paths/~1api~1providers~1{provider_id}~1test/post/responses"
+    capability: "provider.manage"
+    workspace_required: true
+    resource_scope: "workspace-provider"
+    side_effect: "external-call"
+    confirmation: "policy-dependent"
+    async: false
+    remediation: "provider-health-contract"
+    test_plan: "cli.contract.provider.test"
+
+  - id: "provider.health"
+    command: "pr provider health"
+    exposure: "agent-confirmation"
+    status: "cli-ready"
+    transport: "http"
+    method: "POST"
+    path: "/api/providers/{provider_id}/health-check"
+    input_schema_source: "openapi://platform#/paths/~1api~1providers~1{provider_id}~1health-check/post"
+    output_schema_source: "openapi://platform#/paths/~1api~1providers~1{provider_id}~1health-check/post/responses"
+    capability: "provider.manage"
+    workspace_required: true
+    resource_scope: "workspace-provider"
+    side_effect: "external-call"
+    confirmation: "policy-dependent"
+    async: false
+    remediation: "provider-health-contract"
+    test_plan: "cli.contract.provider.health"
+
+  - id: "provider.model.test"
+    command: "pr provider model test"
+    exposure: "agent-confirmation"
+    status: "cli-ready"
+    transport: "http"
+    method: "POST"
+    path: "/api/providers/{provider_id}/models/{model_id}/test"
+    input_schema_source: "openapi://platform#/paths/~1api~1providers~1{provider_id}~1models~1{model_id}~1test/post"
+    output_schema_source: "openapi://platform#/paths/~1api~1providers~1{provider_id}~1models~1{model_id}~1test/post/responses"
+    capability: "provider.manage"
+    workspace_required: true
+    resource_scope: "workspace-provider-model"
+    side_effect: "external-call"
+    confirmation: "policy-dependent"
+    async: false
+    remediation: "provider-health-contract"
+    test_plan: "cli.contract.provider.model.test"
+
+  - id: "engine.list"
+    command: "pr engine list"
+    exposure: "agent-default"
+    status: "cli-ready"
+    transport: "http"
+    method: "GET"
+    path: "/api/engines"
+    input_schema_source: "openapi://platform#/paths/~1api~1engines/get"
+    output_schema_source: "openapi://platform#/paths/~1api~1engines/get/responses"
+    capability: "provider.view"
+    workspace_required: true
+    resource_scope: "workspace-engine-catalog"
+    side_effect: "none"
+    confirmation: "none"
+    async: false
+    remediation: null
+    test_plan: "cli.contract.engine.list"
+
+  - id: "engine.get"
+    command: "pr engine get"
+    exposure: "agent-default"
+    status: "cli-ready"
+    transport: "http"
+    method: "GET"
+    path: "/api/engines/{category}"
+    input_schema_source: "openapi://platform#/paths/~1api~1engines~1{category}/get"
+    output_schema_source: "openapi://platform#/paths/~1api~1engines~1{category}/get/responses"
+    capability: "provider.view"
+    workspace_required: true
+    resource_scope: "workspace-engine-catalog"
+    side_effect: "none"
+    confirmation: "none"
+    async: false
+    remediation: null
+    test_plan: "cli.contract.engine.get"
+
+  - id: "engine.health"
+    command: "pr engine health"
+    exposure: "agent-confirmation"
+    status: "cli-ready"
+    transport: "http"
+    method: "GET"
+    path: "/api/engines/{category}/health"
+    input_schema_source: "openapi://platform#/paths/~1api~1engines~1{category}~1health/get"
+    output_schema_source: "openapi://platform#/paths/~1api~1engines~1{category}~1health/get/responses"
+    capability: "provider.manage"
+    workspace_required: true
+    resource_scope: "workspace-engine-catalog"
+    side_effect: "external-call"
+    confirmation: "policy-dependent"
+    async: false
+    remediation: "provider-health-contract"
+    test_plan: "cli.contract.engine.health"
+
+  - id: "node-type.list"
+    command: "pr node-type list"
+    exposure: "agent-default"
+    status: "cli-ready"
+    transport: "http"
+    method: "GET"
+    path: "/api/nodes/registry"
+    input_schema_source: "openapi://platform#/paths/~1api~1nodes~1registry/get"
+    output_schema_source: "openapi://platform#/paths/~1api~1nodes~1registry/get/responses"
+    capability: null
+    workspace_required: false
+    resource_scope: "public-node-registry"
+    side_effect: "none"
+    confirmation: "none"
+    async: false
+    remediation: null
+    test_plan: "cli.contract.node-type.list"

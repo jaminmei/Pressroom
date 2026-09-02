@@ -341,7 +341,7 @@ def test_results_list_includes_comparison_and_review_status(
     run_id, result_id, doc_id = _create_completed_result(client, monkeypatch)
     _create_ground_truth(client, doc_id, "# Extracted Text\n\nThis is the OCR output.")
 
-    client.get(f"/api/evaluation-runs/{run_id}/results/{result_id}/compare")
+    client.post(f"/api/evaluation-runs/{run_id}/results/{result_id}/comparison")
 
     resp = client.get(f"/api/evaluation-runs/{run_id}/results")
     assert resp.status_code == 200
@@ -356,7 +356,7 @@ def test_results_list_includes_comparison_and_review_status(
 # --- Compare persists comparison_status on result ---
 
 
-def test_compare_persists_status_on_result(
+def test_comparison_refresh_persists_status_on_result(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     run_id, result_id, doc_id = _create_completed_result(
@@ -364,9 +364,27 @@ def test_compare_persists_status_on_result(
     )
     _create_ground_truth(client, doc_id, "original text")
 
-    client.get(f"/api/evaluation-runs/{run_id}/results/{result_id}/compare")
+    client.post(f"/api/evaluation-runs/{run_id}/results/{result_id}/comparison")
 
     evaluation_repo: EvaluationRepository = client.app.state.evaluation_repository  # type: ignore[union-attr]
     result = asyncio.run(evaluation_repo.get_result(result_id, workspace_id=TEST_WORKSPACE_ID))
     assert result is not None
     assert result.comparison_status == "mismatched"
+
+
+def test_comparison_get_is_pure_and_does_not_persist_status(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run_id, result_id, doc_id = _create_completed_result(
+        client, monkeypatch, output_content="different text"
+    )
+    _create_ground_truth(client, doc_id, "original text")
+
+    response = client.get(f"/api/evaluation-runs/{run_id}/results/{result_id}/comparison")
+    assert response.status_code == 200
+    assert response.json()["comparison_status"] == "mismatched"
+
+    evaluation_repo: EvaluationRepository = client.app.state.evaluation_repository  # type: ignore[union-attr]
+    result = asyncio.run(evaluation_repo.get_result(result_id, workspace_id=TEST_WORKSPACE_ID))
+    assert result is not None
+    assert result.comparison_status == "not_compared"

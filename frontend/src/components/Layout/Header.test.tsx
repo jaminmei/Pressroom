@@ -5,6 +5,10 @@ import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import Header from "@/components/Layout/Header";
+import {
+  experimentalChatboxStorageKey,
+  useChatboxPreferenceStore,
+} from "@/features/chatbox/chatboxPreferenceStore";
 import { useTaskExecutionStore } from "@/features/task-execution/store";
 import { initialAuthState, useAuthStore } from "@/stores/authStore";
 import { initialUIState, useUIStore } from "@/stores/uiStore";
@@ -17,7 +21,7 @@ interface MockDropdownItem {
   key?: React.Key;
   label?: React.ReactNode;
   children?: MockDropdownItem[];
-  onClick?: () => void;
+  onClick?: (info: { domEvent: React.MouseEvent<HTMLButtonElement> }) => void;
   type?: string;
 }
 
@@ -38,7 +42,7 @@ function renderDropdownItems(items: MockDropdownItem[], selectedKeys: React.Key[
         data-testid={item?.["data-testid"]}
         disabled={item?.disabled}
         key={item?.key}
-        onClick={item?.onClick}
+        onClick={(event) => item?.onClick?.({ domEvent: event })}
         role="menuitemradio"
         type="button"
       >
@@ -173,6 +177,23 @@ vi.mock("antd", () => ({
       {renderDropdownItems(menu?.items ?? [], menu?.selectedKeys ?? [])}
     </div>
   ),
+  Switch: ({
+    "data-testid": dataTestId,
+    checked,
+    onClick,
+  }: {
+    "data-testid"?: string;
+    checked?: boolean;
+    onClick?: (checked: boolean, event: React.MouseEvent<HTMLElement>) => void;
+  }) => (
+    <span
+      aria-checked={checked}
+      data-testid={dataTestId}
+      onClick={(event) => onClick?.(!checked, event)}
+      role="switch"
+      tabIndex={0}
+    />
+  ),
   theme: {
     useToken: () => ({ token: { colorPrimary: "#7132f5" } }),
   },
@@ -182,6 +203,7 @@ describe("Header", () => {
   beforeEach(async () => {
     vi.clearAllMocks();
     window.localStorage.clear();
+    useChatboxPreferenceStore.setState({ enabledByUser: {} });
     await i18n.changeLanguage("en");
     document.documentElement.lang = "en";
     mocks.createWorkspace.mockResolvedValue({
@@ -270,6 +292,29 @@ describe("Header", () => {
       expect(document.documentElement.lang).toBe("en");
       expect(screen.getByTestId("domain-tab-database")).toHaveTextContent("Database");
     });
+  });
+
+  it("offers an opt-in experimental Chatbox switch scoped to the current user", () => {
+    render(<MemoryRouter><Header /></MemoryRouter>);
+    const toggle = screen.getByTestId("experimental-chatbox-toggle");
+
+    expect(toggle).toHaveAttribute("aria-checked", "false");
+    fireEvent.click(toggle);
+
+    expect(toggle).toHaveAttribute("aria-checked", "true");
+    expect(window.localStorage.getItem(experimentalChatboxStorageKey("usr_1"))).toBe("true");
+  });
+
+  it("toggles the experimental Chatbox from the menu label", () => {
+    render(<MemoryRouter><Header /></MemoryRouter>);
+
+    fireEvent.click(screen.getByText("Chatbox (Experimental)"));
+
+    expect(screen.getByTestId("experimental-chatbox-toggle")).toHaveAttribute(
+      "aria-checked",
+      "true",
+    );
+    expect(window.localStorage.getItem(experimentalChatboxStorageKey("usr_1"))).toBe("true");
   });
 
   it("keeps logout behavior unchanged", async () => {

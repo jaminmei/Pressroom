@@ -16,6 +16,9 @@ PolicyKind = Literal[
     "explicit_workspace",
     "public_api_key",
     "internal_attestation",
+    "operator",
+    "internal_proxy",
+    "internal_tool_gateway",
 ]
 
 
@@ -30,11 +33,11 @@ PUBLIC: Final = RoutePolicy("public")
 AUTHENTICATED_GLOBAL: Final = RoutePolicy("authenticated_global")
 PUBLIC_API_KEY: Final = RoutePolicy("public_api_key")
 INTERNAL_ATTESTATION: Final = RoutePolicy("internal_attestation")
+INTERNAL_PROXY: Final = RoutePolicy("internal_proxy")
+INTERNAL_TOOL_GATEWAY: Final = RoutePolicy("internal_tool_gateway")
 
 PUBLIC_ROUTES: Final = {
     ("GET", "/api/health"),
-    ("GET", "/api/health/detailed"),
-    ("GET", "/api/health/worker"),
     ("POST", "/api/auth/register"),
     ("POST", "/api/auth/login"),
     ("POST", "/api/auth/logout"),
@@ -69,6 +72,10 @@ EXPLICIT_WORKSPACE_ROUTES: Final[dict[RouteKey, str]] = {
     ("GET", "/api/test-sets/{test_set_id}/documents/{document_id}"): "dataset.view",
     ("GET", "/api/test-sets/{test_set_id}/documents/{document_id}/file"): "dataset.view",
     ("GET", "/api/test-sets/{test_set_id}/documents/{document_id}/thumbnail"): "dataset.view",
+    (
+        "GET",
+        "/api/test-sets/{test_set_id}/documents/{document_id}/deletion-impact",
+    ): "document.upload",
     ("DELETE", "/api/test-sets/{test_set_id}/documents/{document_id}"): "document.upload",
     (
         "POST",
@@ -135,10 +142,16 @@ def _policy(route: EffectiveRoute) -> RoutePolicy | None:
         policy_kind = getattr(dependency_call, "policy_kind", None)
         if policy_kind == "public_api_key":
             return PUBLIC_API_KEY
+        if policy_kind == "internal_proxy":
+            return INTERNAL_PROXY
+        if policy_kind == "internal_tool_gateway":
+            return INTERNAL_TOOL_GATEWAY
         if policy_kind == "workspace":
             capability = getattr(dependency_call, "capability", None)
             assert isinstance(capability, str)
             return RoutePolicy("workspace", capability)
+        if policy_kind == "operator":
+            return RoutePolicy("operator")
     return None
 
 
@@ -157,6 +170,9 @@ def test_every_application_endpoint_has_an_access_policy() -> None:
         "explicit_workspace",
         "public_api_key",
         "internal_attestation",
+        "operator",
+        "internal_proxy",
+        "internal_tool_gateway",
     }
     assert inventory[("GET", "/api/workspaces/{workspace_id}/audit-events")] == RoutePolicy(
         "explicit_workspace", "workspace.update_settings"
@@ -165,4 +181,26 @@ def test_every_application_endpoint_has_an_access_policy() -> None:
         "explicit_workspace", "workspace.delete"
     )
     assert inventory[("GET", "/api/test-sets")] == RoutePolicy("workspace", "dataset.view")
+    assert inventory[("GET", "/api/test-sets/{test_set_id}/deletion-impact")] == RoutePolicy(
+        "workspace", "dataset.create"
+    )
+    assert inventory[
+        (
+            "GET",
+            "/api/test-sets/{test_set_id}/documents/{document_id}/deletion-impact",
+        )
+    ] == RoutePolicy("explicit_workspace", "document.upload")
+    assert inventory[
+        ("GET", "/api/evaluation-runs/{run_id}/results/{result_id}/comparison")
+    ] == RoutePolicy("workspace", "run.view")
+    assert inventory[
+        ("POST", "/api/evaluation-runs/{run_id}/results/{result_id}/comparison")
+    ] == RoutePolicy("workspace", "comparison.refresh")
+    assert inventory[
+        ("GET", "/api/evaluation-runs/{run_id}/results/{result_id}/compare")
+    ] == RoutePolicy("workspace", "run.view")
     assert inventory[("POST", "/api/internal/runtime-attestation")] == INTERNAL_ATTESTATION
+    assert inventory[("GET", "/api/internal/health/detailed")] == RoutePolicy("operator")
+    assert inventory[("GET", "/api/internal/health/worker")] == RoutePolicy("operator")
+    assert inventory[("POST", "/internal/proxy/invoke/{provider_id}")] == INTERNAL_PROXY
+    assert inventory[("POST", "/internal/agent-tools/execute")] == INTERNAL_TOOL_GATEWAY

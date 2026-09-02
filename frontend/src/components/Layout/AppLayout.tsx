@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
 
 import CommandPalette from "@/components/CommandPalette/CommandPalette";
+import { ChatboxShell } from "@/features/chatbox/ChatboxShell";
 import type {
   NodeCommandDefinition,
   RecentWorkflowCommand,
@@ -391,6 +392,7 @@ export default function AppLayout() {
         onClose={() => setRecentRunsDrawerOpen(false)}
         open={recentRunsDrawerOpen}
       />
+      <ChatboxShell />
     </>
   );
 }

@@ -32,6 +32,10 @@ website/.vitepress/dist/
 # Local documentation workspace metadata
 .obsidian/
 
+# Local agent session state (per-session, not for the public clone)
+.omo/run-continuation/
+.corgi/
+
 # Editors and operating systems
 .vscode/
 .idea/

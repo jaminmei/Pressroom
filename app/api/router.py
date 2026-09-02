@@ -3,6 +3,7 @@ from fastapi import APIRouter
 from app.api.adaptor_test_cases import router as adaptor_test_cases_router
 from app.api.adaptor_workbench import router as adaptor_workbench_router
 from app.api.auth import router as auth_router
+from app.api.chatbox import router as chatbox_router
 from app.api.engines import router as engines_router
 from app.api.evaluation_runs import router as evaluation_runs_router
 from app.api.files import router as files_router
@@ -23,6 +24,7 @@ api_router = APIRouter(responses=canonical_error_responses())
 api_router.include_router(health_router)
 api_router.include_router(runtime_attestation_router)
 api_router.include_router(auth_router)
+api_router.include_router(chatbox_router)
 api_router.include_router(adaptor_test_cases_router)
 api_router.include_router(adaptor_workbench_router)
 api_router.include_router(files_router)

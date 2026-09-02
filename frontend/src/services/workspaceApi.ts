@@ -87,6 +87,8 @@ export interface WorkspaceDeletionImpact {
     databases: number;
     evaluationRuns: number;
     taskRuns: number;
+    files: number;
+    pendingStorageCleanups: number;
     workspaceProviders: number;
   };
 }
@@ -247,6 +249,8 @@ export async function getWorkspaceDeletionImpact(workspaceId: string): Promise<W
       databases: number;
       evaluation_runs: number;
       task_runs: number;
+      files: number;
+      pending_storage_cleanups: number;
       workspace_providers: number;
     };
   }>(`/workspaces/${workspaceId}/deletion-impact`);
@@ -258,6 +262,8 @@ export async function getWorkspaceDeletionImpact(workspaceId: string): Promise<W
       databases: response.data.counts.databases,
       evaluationRuns: response.data.counts.evaluation_runs,
       taskRuns: response.data.counts.task_runs,
+      files: response.data.counts.files,
+      pendingStorageCleanups: response.data.counts.pending_storage_cleanups,
       workspaceProviders: response.data.counts.workspace_providers,
     },
   };

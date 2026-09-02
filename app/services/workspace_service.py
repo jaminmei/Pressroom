@@ -115,6 +115,24 @@ def _deletion_counts(session: Session, workspace_id: str) -> WorkspaceDeletionCo
         "databases": count("test_sets"),
         "evaluation_runs": count("evaluation_runs"),
         "task_runs": count("task_runs"),
+        "files": int(
+            session.execute(
+                text(
+                    "SELECT COUNT(*) FROM workspace_files "
+                    "WHERE workspace_id=:id AND status!='deleted'"
+                ),
+                {"id": workspace_id},
+            ).scalar_one()
+        ),
+        "pending_storage_cleanups": int(
+            session.execute(
+                text(
+                    "SELECT COUNT(*) FROM storage_cleanup_jobs "
+                    "WHERE workspace_id=:id AND status!='completed'"
+                ),
+                {"id": workspace_id},
+            ).scalar_one()
+        ),
         "workspace_providers": _provider_count(workspace_id),
     }
 

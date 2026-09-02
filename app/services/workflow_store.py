@@ -3,11 +3,27 @@ from __future__ import annotations
 import builtins
 import hashlib
 import json
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from uuid import uuid4
 
 from app.models.workflow import Workflow, WorkflowActor, WorkflowDefinition, WorkflowVersionSnapshot
 from app.repositories._workspace_filter import _require_workspace_filter
+
+
+@dataclass(frozen=True, slots=True)
+class WorkflowDeletionImpact:
+    workflow_id: str
+    task_runs: int = 0
+    active_task_runs: int = 0
+    evaluation_runs: int = 0
+    active_evaluation_runs: int = 0
+    api_keys: int = 0
+    active_api_keys: int = 0
+
+    @property
+    def can_delete(self) -> bool:
+        return True
 
 
 class WorkflowVersionConflictError(Exception):
@@ -265,8 +281,20 @@ class WorkflowStore:
         updated.description = snapshot.description
         updated.definition = snapshot.definition.model_copy(deep=True)
         updated.updated_at = datetime.now(timezone.utc)
+        updated.latest_version += 1
         if actor is not None:
             updated.last_saved_by = actor
+        updated.versions.append(
+            WorkflowVersionSnapshot(
+                version=updated.latest_version,
+                status="saved",
+                name=updated.name,
+                description=updated.description,
+                definition=updated.definition.model_copy(deep=True),
+                created_at=updated.updated_at,
+                created_by=actor,
+            )
+        )
         self._workflows[resolved_id] = self._copy_workflow(updated)
         return self._copy_workflow(updated)
 
@@ -416,6 +444,18 @@ class WorkflowStore:
             return False
         del self._workflows[resolved_id]
         return True
+
+    def deletion_impact(
+        self,
+        workflow_id: str,
+        *,
+        workspace_id: str | None = None,
+    ) -> WorkflowDeletionImpact | None:
+        _require_workspace_filter(workspace_id)
+        resolved_id = self._resolve_workflow_id(workflow_id, workspace_id=workspace_id)
+        if resolved_id is None:
+            return None
+        return WorkflowDeletionImpact(workflow_id=resolved_id)
 
     def list_paginated(
         self,

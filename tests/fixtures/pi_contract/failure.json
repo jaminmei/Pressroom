@@ -1,0 +1,40 @@
+{
+  "name": "failure",
+  "description": "Model and tool failures carry credentials, diagnostics, upstream bodies, and host session paths on the wire; the projection must strip every one before the browser sees the event.",
+  "provenance": {
+    "sdk": { "@earendil-works/pi-coding-agent": "0.84.1" },
+    "sources": [
+      "pi_runtime/src/main.mjs (toJsonEvent delta-only message_update)",
+      "pi_runtime/node_modules/@earendil-works/pi-agent-core/dist/types.d.ts (tool_execution_end isError)",
+      "app/services/chatbox_projection.py (_DROP_KEYS, path containment)"
+    ]
+  },
+  "raw_events": [
+    { "type": "agent_start" },
+    { "type": "turn_start" },
+    { "type": "message_start", "message": { "id": "a1", "role": "assistant", "content": [], "status": "streaming", "timestamp": 1 } },
+    { "type": "message_update", "assistantMessageEvent": { "type": "text_delta", "contentIndex": 0, "delta": "Running the build." } },
+    { "type": "message_end", "message": { "id": "a1", "role": "assistant", "content": [{ "type": "text", "text": "Running the build." }, { "type": "toolCall", "toolCallId": "tc-bash", "toolName": "bash", "input": { "command": "make" } }], "status": "complete", "stopReason": "toolUse", "timestamp": 2 } },
+    { "type": "tool_execution_start", "toolCallId": "tc-bash", "toolName": "bash", "args": { "command": "make" } },
+    { "type": "tool_execution_end", "toolCallId": "tc-bash", "toolName": "bash", "result": { "content": [{ "type": "text", "text": "make: *** [build] Error 2" }], "details": { "truncation": { "truncated": false } }, "raw_response": { "status": 500, "upstream_body": "secret-upstream-payload", "api_key": "sk-live-123", "authorization": "Bearer sk-live-123" } }, "isError": true },
+    { "type": "message_start", "message": { "id": "a2", "role": "assistant", "content": [], "status": "streaming", "model": { "provider": "doc-conv-proxy", "id": "test-model" }, "timestamp": 3 } },
+    { "type": "message_end", "message": { "id": "a2", "role": "assistant", "content": [{ "type": "text", "text": "The build failed." }], "status": "error", "stopReason": "error", "errorMessage": "provider request failed after retries", "token": "sk-live-123", "credentials": { "api_key": "sk-live-123" }, "diagnostics": { "upstream_body": "secret-upstream-payload" }, "session_file": "/home/agent/.pi/agent/sessions/abc.jsonl", "response_body": "secret-upstream-payload", "timestamp": 4 } },
+    { "type": "turn_end" },
+    { "type": "agent_end" },
+    { "type": "agent_settled" }
+  ],
+  "projected_events": [
+    { "type": "agent_start" },
+    { "type": "turn_start" },
+    { "type": "message_start", "message": { "id": "a1", "role": "assistant", "content": [], "status": "streaming", "timestamp": 1 } },
+    { "type": "message_update", "assistantMessageEvent": { "type": "text_delta", "contentIndex": 0, "delta": "Running the build." } },
+    { "type": "message_end", "message": { "id": "a1", "role": "assistant", "content": [{ "type": "text", "text": "Running the build." }, { "type": "toolCall", "toolCallId": "tc-bash", "toolName": "bash", "input": { "command": "make" } }], "status": "complete", "stopReason": "toolUse", "timestamp": 2 } },
+    { "type": "tool_execution_start", "toolCallId": "tc-bash", "toolName": "bash", "args": { "command": "make" } },
+    { "type": "tool_execution_end", "toolCallId": "tc-bash", "toolName": "bash", "result": { "content": [{ "type": "text", "text": "make: *** [build] Error 2" }], "details": { "truncation": { "truncated": false } } }, "isError": true },
+    { "type": "message_start", "message": { "id": "a2", "role": "assistant", "content": [], "status": "streaming", "model": { "provider": "doc-conv-proxy", "id": "test-model" }, "timestamp": 3 } },
+    { "type": "message_end", "message": { "id": "a2", "role": "assistant", "content": [{ "type": "text", "text": "The build failed." }], "status": "error", "stopReason": "error", "timestamp": 4 } },
+    { "type": "turn_end" },
+    { "type": "agent_end" },
+    { "type": "agent_settled" }
+  ]
+}

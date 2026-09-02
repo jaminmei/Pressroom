@@ -7,6 +7,7 @@ import type { EngineWithProviders } from "@/types/engine";
 import { getEngines } from "@/services/enginesApi";
 
 import EngineSection from "./EngineSection";
+import AgentLlmSettingsCard from "./AgentLlmSettingsCard";
 
 export default function SettingsPage() {
   const { t } = useTranslation(["common", "settings"]);
@@ -32,6 +33,26 @@ export default function SettingsPage() {
     loadEngines();
   }, [loadEngines]);
 
+  const renderEngines = () => {
+    if (loading) return <Spin size="large" />;
+    if (error !== null) {
+      return (
+        <Result
+          status="error"
+          title={t("settings:failedLoadEngines")}
+          subTitle={error}
+          extra={<Button onClick={loadEngines}>{t("common:retry")}</Button>}
+        />
+      );
+    }
+    if (engines.length === 0) {
+      return <Empty description={t("settings:noEngines")} />;
+    }
+    return engines.map((engine) => (
+      <EngineSection key={engine.category} engine={engine} />
+    ));
+  };
+
   return (
     <div style={{ position: "absolute", inset: 0, padding: 24, overflowY: "auto" }}>
       {/* Header */}
@@ -42,22 +63,9 @@ export default function SettingsPage() {
         </Typography.Title>
       </div>
 
-      {loading ? (
-        <Spin size="large" />
-      ) : error ? (
-        <Result
-          status="error"
-          title={t("settings:failedLoadEngines")}
-          subTitle={error}
-          extra={<Button onClick={loadEngines}>{t("common:retry")}</Button>}
-        />
-      ) : engines.length === 0 ? (
-        <Empty description={t("settings:noEngines")} />
-      ) : (
-        engines.map((engine) => (
-          <EngineSection key={engine.category} engine={engine} />
-        ))
-      )}
+      <AgentLlmSettingsCard />
+
+      {renderEngines()}
     </div>
   );
 }

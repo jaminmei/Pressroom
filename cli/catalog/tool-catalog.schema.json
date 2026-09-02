@@ -1,0 +1,119 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pressroom.invalid/schemas/tool-catalog.schema.json",
+  "title": "PressRoom CLI tool catalog",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "catalog_status",
+    "updated",
+    "canonical_binary",
+    "fallback_binary",
+    "authorization_source",
+    "default_output_schema",
+    "contract_convention",
+    "commands"
+  ],
+  "properties": {
+    "schema_version": { "type": "string" },
+    "catalog_status": { "enum": ["draft", "frozen", "released"] },
+    "updated": { "type": "string", "format": "date" },
+    "canonical_binary": { "type": "string", "minLength": 1 },
+    "fallback_binary": { "type": "string", "minLength": 1 },
+    "authorization_source": { "const": "backend" },
+    "default_output_schema": { "type": "string", "minLength": 1 },
+    "contract_convention": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["input_schema", "output_schema"],
+      "properties": {
+        "input_schema": { "type": "string", "minLength": 1 },
+        "output_schema": { "type": "string", "minLength": 1 }
+      }
+    },
+    "commands": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/command" }
+    }
+  },
+  "$defs": {
+    "nullableString": {
+      "type": ["string", "null"]
+    },
+    "command": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "command",
+        "exposure",
+        "status",
+        "transport",
+        "method",
+        "path",
+        "input_schema_source",
+        "output_schema_source",
+        "capability",
+        "workspace_required",
+        "resource_scope",
+        "side_effect",
+        "confirmation",
+        "async",
+        "remediation",
+        "test_plan"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z0-9]+(?:[.-][a-z0-9]+)*$"
+        },
+        "command": {
+          "type": "string",
+          "pattern": "^pr(?: [a-z0-9-]+)+(?: --json)?$"
+        },
+        "exposure": {
+          "enum": ["agent-default", "agent-confirmation"]
+        },
+        "status": {
+          "enum": ["cli-ready", "deferred"]
+        },
+        "transport": {
+          "enum": ["http", "composite"]
+        },
+        "method": {
+          "type": ["string", "null"],
+          "enum": ["GET", "POST", "PATCH", "PUT", "DELETE", null]
+        },
+        "path": { "$ref": "#/$defs/nullableString" },
+        "input_schema_source": {
+          "type": "string",
+          "pattern": "^(openapi://platform#|cli://contracts/).+"
+        },
+        "output_schema_source": {
+          "type": "string",
+          "pattern": "^(openapi://platform#|cli://contracts/).+"
+        },
+        "capability": { "$ref": "#/$defs/nullableString" },
+        "workspace_required": { "type": "boolean" },
+        "resource_scope": { "type": "string", "minLength": 1 },
+        "side_effect": { "type": "string", "minLength": 1 },
+        "confirmation": {
+          "enum": ["none", "explicit-intent", "required", "policy-dependent"]
+        },
+        "requires_platform_approval": { "type": "boolean" },
+        "cli_requires_yes_flag": { "type": "boolean" },
+        "input_transport": {
+          "enum": ["argv", "stdin-json"]
+        },
+        "async": { "type": "boolean" },
+        "remediation": { "$ref": "#/$defs/nullableString" },
+        "test_plan": {
+          "type": "string",
+          "pattern": "^cli\\.contract\\.[a-z0-9]+(?:[.-][a-z0-9]+)*$"
+        }
+      }
+    }
+  }
+}

@@ -27,6 +27,9 @@ export type WorkspaceCapability =
   | "workflow.publish"
   | "workflow.restore"
   | "workflow.run"
+  | "file.view"
+  | "file.upload"
+  | "file.delete"
   | "database.view"
   | "database.create"
   | "database.update"
@@ -40,6 +43,7 @@ export type WorkspaceCapability =
   | "run.create"
   | "run.cancel"
   | "run.rerun"
+  | "comparison.refresh"
   | "provider.view"
   | "provider.use"
   | "provider.manage"
@@ -239,6 +243,9 @@ export const CAPABILITY_MATRIX: Record<WorkspaceCapability, WorkspaceRole[]> = {
   "workflow.publish": ["owner", "admin"],
   "workflow.restore": ["owner", "admin"],
   "workflow.run": ["owner", "admin", "editor", "runner"],
+  "file.view": ["owner", "admin", "editor", "runner", "viewer"],
+  "file.upload": ["owner", "admin", "editor", "runner"],
+  "file.delete": ["owner", "admin", "editor"],
   "database.view": ["owner", "admin", "editor", "runner", "viewer"],
   "database.create": ["owner", "admin", "editor"],
   "database.update": ["owner", "admin", "editor"],
@@ -252,6 +259,7 @@ export const CAPABILITY_MATRIX: Record<WorkspaceCapability, WorkspaceRole[]> = {
   "run.create": ["owner", "admin", "editor", "runner"],
   "run.cancel": ["owner", "admin", "editor", "runner"],
   "run.rerun": ["owner", "admin", "editor", "runner"],
+  "comparison.refresh": ["owner", "admin", "editor", "runner"],
   "provider.view": ["owner", "admin", "editor", "runner", "viewer"],
   "provider.use": ["owner", "admin", "editor", "runner"],
   "provider.manage": ["owner", "admin"],
@@ -279,6 +287,9 @@ export const ALL_CAPABILITIES: readonly WorkspaceCapability[] = [
   "workflow.publish",
   "workflow.restore",
   "workflow.run",
+  "file.view",
+  "file.upload",
+  "file.delete",
   "database.view",
   "database.create",
   "database.update",
@@ -292,6 +303,7 @@ export const ALL_CAPABILITIES: readonly WorkspaceCapability[] = [
   "run.create",
   "run.cancel",
   "run.rerun",
+  "comparison.refresh",
   "provider.view",
   "provider.use",
   "provider.manage",

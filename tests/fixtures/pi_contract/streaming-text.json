@@ -1,0 +1,40 @@
+{
+  "name": "streaming-text",
+  "description": "Plain streamed assistant text turn ending in agent_settled.",
+  "provenance": {
+    "sdk": { "@earendil-works/pi-coding-agent": "0.84.1" },
+    "sources": [
+      "pi_runtime/src/main.mjs (toJsonEvent delta-only message_update)",
+      "pi_runtime/node_modules/@earendil-works/pi-agent-core/dist/types.d.ts (AgentEvent union)",
+      "pi_runtime/node_modules/@earendil-works/pi-protocol/dist/schemas.d.ts (transcript item shapes)"
+    ]
+  },
+  "raw_events": [
+    { "type": "agent_start" },
+    { "type": "turn_start" },
+    { "type": "message_start", "message": { "id": "u1", "role": "user", "content": [{ "type": "text", "text": "summarize src/app.ts" }], "timestamp": 1 } },
+    { "type": "message_end", "message": { "id": "u1", "role": "user", "content": [{ "type": "text", "text": "summarize src/app.ts" }], "timestamp": 1 } },
+    { "type": "message_start", "message": { "id": "a1", "role": "assistant", "content": [], "status": "streaming", "model": { "provider": "doc-conv-proxy", "id": "test-model" }, "timestamp": 2 } },
+    { "type": "message_update", "assistantMessageEvent": { "type": "text_delta", "contentIndex": 0, "delta": "The file " } },
+    { "type": "message_update", "assistantMessageEvent": { "type": "text_delta", "contentIndex": 0, "delta": "exports a single " } },
+    { "type": "message_update", "assistantMessageEvent": { "type": "text_delta", "contentIndex": 0, "delta": "handler." } },
+    { "type": "message_end", "message": { "id": "a1", "role": "assistant", "content": [{ "type": "text", "text": "The file exports a single handler." }], "status": "complete", "stopReason": "stop", "model": { "provider": "doc-conv-proxy", "id": "test-model" }, "usage": { "input": 120, "output": 12, "cacheRead": 0, "cacheWrite": 0, "totalTokens": 132, "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "total": 0 } }, "timestamp": 3 } },
+    { "type": "turn_end" },
+    { "type": "agent_end" },
+    { "type": "agent_settled" }
+  ],
+  "projected_events": [
+    { "type": "agent_start" },
+    { "type": "turn_start" },
+    { "type": "message_start", "message": { "id": "u1", "role": "user", "content": [{ "type": "text", "text": "summarize src/app.ts" }], "timestamp": 1 } },
+    { "type": "message_end", "message": { "id": "u1", "role": "user", "content": [{ "type": "text", "text": "summarize src/app.ts" }], "timestamp": 1 } },
+    { "type": "message_start", "message": { "id": "a1", "role": "assistant", "content": [], "status": "streaming", "model": { "provider": "doc-conv-proxy", "id": "test-model" }, "timestamp": 2 } },
+    { "type": "message_update", "assistantMessageEvent": { "type": "text_delta", "contentIndex": 0, "delta": "The file " } },
+    { "type": "message_update", "assistantMessageEvent": { "type": "text_delta", "contentIndex": 0, "delta": "exports a single " } },
+    { "type": "message_update", "assistantMessageEvent": { "type": "text_delta", "contentIndex": 0, "delta": "handler." } },
+    { "type": "message_end", "message": { "id": "a1", "role": "assistant", "content": [{ "type": "text", "text": "The file exports a single handler." }], "status": "complete", "stopReason": "stop", "model": { "provider": "doc-conv-proxy", "id": "test-model" }, "usage": { "input": 120, "output": 12, "cacheRead": 0, "cacheWrite": 0, "totalTokens": 132, "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "total": 0 } }, "timestamp": 3 } },
+    { "type": "turn_end" },
+    { "type": "agent_end" },
+    { "type": "agent_settled" }
+  ]
+}

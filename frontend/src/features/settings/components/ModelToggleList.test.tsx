@@ -114,7 +114,7 @@ describe("ModelToggleList", () => {
 
   it("T-MODEL-04: When onTestModel is provided, Test button appears per model and calls onTestModel", async () => {
     const onTestModel = vi.fn().mockResolvedValue({
-      status: "ok",
+      status: "healthy",
       latency_ms: 150,
       error: null,
       model_response: "OK",

@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pressroom-cli"
+version = "0.1.0"
+description = "Managed Agent business-tool CLI for the Document Conversion platform"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = ["PyYAML>=6.0"]
+
+[project.scripts]
+pr = "pressroom_cli.main:entrypoint"
+pressroom = "pressroom_cli.main:entrypoint"
+
+[tool.setuptools]
+packages = ["pressroom_cli"]
+
+[tool.setuptools.package-data]
+pressroom_cli = ["tool-catalog.yaml", "cli-contracts.yaml"]

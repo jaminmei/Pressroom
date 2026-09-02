@@ -6,12 +6,15 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Request, Security
 from fastapi.responses import JSONResponse
-from fastapi.security import APIKeyCookie
+from fastapi.security import APIKeyCookie, HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel
 
 from app.config import Settings, get_settings
 from app.db.session import SessionLocal
+from app.errors import AppError
 from app.models.auth import AuthenticatedContext
+from app.services.agent_session_credentials import AgentSessionCredentialService
+from app.services.agent_tool_gateway import revoke_agent_tool_gateway_grants_for_user
 from app.services.auth_service import AuthService, IssuedAuthContext
 from app.services.workspace_access import (
     ResolvedContext,
@@ -25,6 +28,11 @@ _session_cookie = APIKeyCookie(
     name=get_settings().auth_session_cookie_name,
     auto_error=False,
     scheme_name="SessionCookie",
+)
+_agent_session_bearer = HTTPBearer(
+    auto_error=False,
+    scheme_name="AgentSessionTokenBearer",
+    description="Short-lived credential issued by the platform for one Agent Session",
 )
 
 
@@ -44,6 +52,10 @@ def get_auth_service() -> AuthService:
     return AuthService()
 
 
+def get_agent_session_credential_service() -> AgentSessionCredentialService:
+    return AgentSessionCredentialService(session_factory=SessionLocal)
+
+
 def _issued_response(
     *,
     status_code: int,
@@ -57,6 +69,11 @@ def _issued_response(
             "data": {
                 "user": issued.context.user.model_dump(mode="json"),
                 "session": {
+                    "expires_at": issued.context.session.expires_at.isoformat(),
+                },
+                "credential": {
+                    "kind": "session",
+                    "id": issued.context.session.id,
                     "expires_at": issued.context.session.expires_at.isoformat(),
                 },
             },
@@ -78,8 +95,22 @@ def _issued_response(
 def get_authenticated_context(
     request: Request,
     _: Annotated[str | None, Security(_session_cookie)],
+    bearer: Annotated[
+        HTTPAuthorizationCredentials | None,
+        Security(_agent_session_bearer),
+    ],
     auth_service: Annotated[AuthService, Depends(get_auth_service)],
+    agent_session_service: Annotated[
+        AgentSessionCredentialService,
+        Depends(get_agent_session_credential_service),
+    ],
 ) -> AuthenticatedContext:
+    if bearer is not None:
+        return agent_session_service.require_authenticated(
+            bearer.credentials,
+            requested_session_id=request.headers.get("X-Agent-Session-Id"),
+            requested_workspace_id=request.headers.get("X-Workspace-Id"),
+        )
     raw_session_token = request.cookies.get(get_settings().auth_session_cookie_name)
     return auth_service.require_authenticated(raw_session_token)
 
@@ -126,7 +157,13 @@ async def login(payload: LoginRequest) -> JSONResponse:
 async def logout(request: Request) -> JSONResponse:
     settings = get_settings()
     raw_session_token = request.cookies.get(settings.auth_session_cookie_name)
+    try:
+        context = get_auth_service().require_authenticated(raw_session_token)
+    except AppError:
+        context = None
     get_auth_service().logout(raw_session_token)
+    if context is not None:
+        revoke_agent_tool_gateway_grants_for_user(request.app, user_id=context.user.id)
     response = JSONResponse(status_code=200, content={"success": True})
     response.delete_cookie(
         key=settings.auth_session_cookie_name,
@@ -147,6 +184,11 @@ async def me(
             "data": {
                 "user": context.user.model_dump(mode="json"),
                 "session": {
+                    "expires_at": context.session.expires_at.isoformat(),
+                },
+                "credential": {
+                    "kind": context.auth_kind,
+                    "id": context.session.id,
                     "expires_at": context.session.expires_at.isoformat(),
                 },
             },

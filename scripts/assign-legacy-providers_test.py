@@ -117,7 +117,7 @@ def test_report_writes_auditable_non_secret_json(provider_db: Path, tmp_path: Pa
     report = json.loads(output.read_text(encoding="utf-8"))
     assert report["database"]["path"] == str(provider_db.resolve())
     assert len(report["database"]["sha256"]) == 64
-    assert report["schema_version"] == 6
+    assert report["schema_version"] == 9
     assert {item["id"] for item in report["providers"]} == {
         "legacy-ocr",
         "legacy-text",

@@ -15,7 +15,7 @@ export default function ConnectionStatusBadge({
     return null;
   }
 
-  if (result.status === "no_health_url") {
+  if (result.status === "unavailable" && result.error_code === "PROVIDER_HEALTH_URL_MISSING") {
     return (
       <Tooltip title={t("settings:noHealthConfigured")}>
         <Tag color="warning">{t("settings:noHealthUrl")}</Tag>
@@ -23,7 +23,7 @@ export default function ConnectionStatusBadge({
     );
   }
 
-  if (result.status === "no_models") {
+  if (result.status === "unavailable") {
     return (
       <Tooltip title={t("settings:noModelsConfigured")}>
         <Tag color="warning">{t("settings:noModels")}</Tag>

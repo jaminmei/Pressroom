@@ -86,7 +86,7 @@ describe("Provider permission matrix", () => {
     currentRole = role;
     const onTestConnection = vi.fn();
     const onToggle = vi.fn().mockResolvedValue(undefined);
-    const onTestModel = vi.fn().mockResolvedValue({ status: "ok", latency_ms: 1, error: null, model_response: null });
+    const onTestModel = vi.fn().mockResolvedValue({ status: "healthy", latency_ms: 1, error: null, model_response: null });
 
     render(
       <>

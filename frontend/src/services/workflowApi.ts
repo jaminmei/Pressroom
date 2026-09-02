@@ -207,14 +207,6 @@ export interface WorkflowExportResponse {
   };
 }
 
-function shouldFallbackToLegacyRestoreEndpoint(error: unknown): boolean {
-  if (typeof error !== "object" || error === null || !("response" in error)) {
-    return false;
-  }
-  const response = (error as { response?: { status?: number } }).response;
-  return response?.status === 404 || response?.status === 405;
-}
-
 async function readFileText(file: File): Promise<string> {
   if (typeof file.text === "function") {
     return file.text();
@@ -275,7 +267,18 @@ export async function exportWorkflow(workflowId: string): Promise<WorkflowExport
 export async function saveWorkflowDraft(
   payload: WorkflowSaveDraftPayload
 ): Promise<WorkflowSaveDraftResponse> {
-  const response = await apiClient.post<WorkflowSaveDraftResponse>("/workflows/save", payload);
+  const response = payload.workflow_id
+    ? await apiClient.patch<WorkflowSaveDraftResponse>(`/workflows/${payload.workflow_id}`, {
+        name: payload.name,
+        description: payload.description,
+        definition: payload.definition,
+        base_version: payload.base_version,
+      })
+    : await apiClient.post<WorkflowSaveDraftResponse>("/workflows", {
+        name: payload.name,
+        description: payload.description,
+        definition: payload.definition,
+      });
   return response.data;
 }
 
@@ -342,23 +345,13 @@ export async function getWorkflowVersionDetail(workflowId: string, version: numb
 }
 
 export async function restoreWorkflowVersion(
-  workflowKey: string,
+  workflowId: string,
   version: number
 ): Promise<RestoreWorkflowResponse> {
-  try {
-    const response = await apiClient.post<RestoreWorkflowResponse>(
-      `/workflows/${workflowKey}/restore/${version}`
-    );
-    return response.data;
-  } catch (error) {
-    if (!shouldFallbackToLegacyRestoreEndpoint(error)) {
-      throw error;
-    }
-    const legacyResponse = await apiClient.post<RestoreWorkflowResponse>(`/workflows/${workflowKey}/restore`, {
-      version
-    });
-    return legacyResponse.data;
-  }
+  const response = await apiClient.post<RestoreWorkflowResponse>(
+    `/workflows/${workflowId}/versions/${version}/restore`,
+  );
+  return response.data;
 }
 
 export function buildNodeRunTaskFormData(

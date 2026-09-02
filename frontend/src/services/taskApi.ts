@@ -1,7 +1,6 @@
 import { apiClient } from "@/services/api";
 import type {
   CreateTaskResponse,
-  SubmitBlockSelectionPayload,
   TaskHistoryItem,
   TaskHistoryMeta,
   TaskHistoryResponse,
@@ -35,14 +34,6 @@ export interface NodeResultResponse {
   output?: NodeOutput | null;
 }
 
-export interface SubmitBlockSelectionResponse {
-  task_id: string;
-  node_id: string;
-  status: "running";
-  message?: string;
-  selected_count?: number;
-}
-
 interface TaskHistoryApiEnvelope {
   items?: TaskHistoryItem[];
   data?: TaskHistoryItem[];
@@ -66,18 +57,6 @@ export async function getTaskStatus(taskId: string): Promise<TaskStatusResponse>
 
 export async function getTaskResults(taskId: string): Promise<TaskResultsResponse> {
   const response = await apiClient.get<TaskResultsResponse>(`/tasks/${taskId}/results`);
-  return response.data;
-}
-
-export async function submitBlockSelection(
-  taskId: string,
-  nodeId: string,
-  payload: SubmitBlockSelectionPayload
-): Promise<SubmitBlockSelectionResponse> {
-  const response = await apiClient.post<SubmitBlockSelectionResponse>(
-    `/tasks/${taskId}/nodes/${nodeId}/input`,
-    payload
-  );
   return response.data;
 }
 

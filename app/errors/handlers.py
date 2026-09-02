@@ -132,6 +132,8 @@ def _http_error_code(status_code: int, message: str) -> ErrorCode:
             if "delete workspace with" in lowered or "workspace still owns" in lowered
             else ErrorCode.REQUEST_CONFLICT
         )
+    if status_code == 415:
+        return ErrorCode.UNSUPPORTED_FORMAT
     if status_code == 422:
         return ErrorCode.REQUEST_VALIDATION_FAILED
     return ErrorCode.INTERNAL_ERROR

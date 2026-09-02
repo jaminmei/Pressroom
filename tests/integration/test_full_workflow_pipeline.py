@@ -24,6 +24,7 @@ from app.db.base import Base
 from app.main import app
 from app.models.execution import NodeOutput
 from app.services.engine_client import EngineClient
+from app.storage.local import get_storage
 from tests._api_workspace_contract import TEST_WORKSPACE_ID
 from tests.integration.workspace_api_support import reset_db_runtime, skip_discover_seed_configs
 
@@ -63,11 +64,13 @@ async def isolated_pipeline(
     get_file_store.cache_clear()
     get_tasks_file_store.cache_clear()
     get_workflow_store.cache_clear()
+    get_storage.cache_clear()
     async with app.router.lifespan_context(app):
         yield tmp_path
     get_workflow_store.cache_clear()
     get_tasks_file_store.cache_clear()
     get_file_store.cache_clear()
+    get_storage.cache_clear()
     get_settings.cache_clear()
     reset_db_runtime()
 

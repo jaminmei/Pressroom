@@ -22,6 +22,7 @@
 #   - rotation:       Image orientation correction
 #   - frontend:       React + Vite frontend served by Nginx reverse proxy
 #   - backend:        FastAPI backend service (profile: standard, full)
+#   - pi-runtime:     Isolated Pi Coding Agent runtime (profile: standard, full)
 #   - postgres:       PostgreSQL database (profile: standard, full)
 #   - redis:          Redis cache/broker (profile: full)
 #   - celery-worker:  Celery worker service (profile: full)
@@ -33,6 +34,7 @@ x-backend-runtime: &backend_runtime
   image: docconv-backend-runtime:local
   volumes:
     - doc-conv-storage:/app/storage
+    - agent-session-checkpoints:/var/lib/pressroom-agent-sessions
 
 x-engine-storage: &engine_storage
   volumes:
@@ -322,6 +324,17 @@ services:
       - AUTH_SESSION_SAME_SITE=${AUTH_SESSION_SAME_SITE:-lax}
       - AUTH_SESSION_SECURE=${AUTH_SESSION_SECURE:-false}
       - AUTH_SESSION_PATH=${AUTH_SESSION_PATH:-/}
+      - OPERATOR_HEALTH_TOKEN=${OPERATOR_HEALTH_TOKEN:-}
+      - AGENT_SESSION_CREDENTIAL_TTL_MINUTES=${AGENT_SESSION_CREDENTIAL_TTL_MINUTES:-30}
+      - AGENT_TOOL_APPROVAL_TTL_SECONDS=${AGENT_TOOL_APPROVAL_TTL_SECONDS:-60}
+      - AGENT_TOOL_TIMEOUT_SECONDS=${AGENT_TOOL_TIMEOUT_SECONDS:-45}
+      - AGENT_TOOL_OUTPUT_MAX_BYTES=${AGENT_TOOL_OUTPUT_MAX_BYTES:-1048576}
+      - AGENT_ADMISSION_MAX_MESSAGE_BYTES=${AGENT_ADMISSION_MAX_MESSAGE_BYTES:-32768}
+      - AGENT_ADMISSION_TURNS_PER_MINUTE=${AGENT_ADMISSION_TURNS_PER_MINUTE:-20}
+      - CHATBOX_INTERNAL_PROXY_BASE_URL=http://backend:8000
+      - PI_RUNTIME_SERVICE_URL=http://pi-runtime:8080
+      - PI_RUNTIME_CONTROL_TOKEN=${PI_RUNTIME_CONTROL_TOKEN:?PI_RUNTIME_CONTROL_TOKEN env var is required}
+      - AGENT_CHECKPOINT_ROOT=/var/lib/pressroom-agent-sessions
       - OCR_ENGINE_URL=${OCR_ENGINE_URL:-http://ocr-engine:8080}
       - VLM_ENGINE_URL=${VLM_ENGINE_URL:-http://vlm-engine:8080}
       - TEXT_ENGINE_URL=${TEXT_ENGINE_URL:-http://text-engine:8080}
@@ -372,6 +385,48 @@ services:
     memswap_limit: 1536m
     networks:
       - doc-conv-network
+      - agent-runtime-network
+    restart: unless-stopped
+
+  # === Isolated Pi Coding Agent Runtime ===
+  pi-runtime:
+    build:
+      context: .
+      dockerfile: Dockerfile.pi-runtime
+    image: docconv-pi-runtime:local
+    profiles:
+      - standard
+      - full
+    environment:
+      - PI_RUNTIME_CONTROL_TOKEN=${PI_RUNTIME_CONTROL_TOKEN:?PI_RUNTIME_CONTROL_TOKEN env var is required}
+      - PI_RUNTIME_CHECKPOINT_ROOT=/var/lib/pressroom-agent-sessions
+      - PI_RUNTIME_MAX_SESSIONS=${PI_RUNTIME_MAX_SESSIONS:-16}
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8080/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    networks:
+      - agent-runtime-network
+    volumes:
+      - agent-session-checkpoints:/var/lib/pressroom-agent-sessions
+    user: "10004:10004"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    init: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=64m
+    pids_limit: 96
+    mem_limit: 1g
+    memswap_limit: 1280m
+    cpus: 1.0
     restart: unless-stopped
 
   # === Frontend UI ===
@@ -569,10 +624,14 @@ services:
 networks:
   doc-conv-network:
     driver: bridge
+  agent-runtime-network:
+    driver: bridge
+    internal: true
 
 # Volumes for persistent storage
 volumes:
   doc-conv-storage:
+  agent-session-checkpoints:
   adaptor-sandbox-socket:
   postgres_data:
   redis_data:

@@ -271,8 +271,14 @@ async def _ensure_backend_available(
     *,
     required_engines: set[str],
 ) -> None:
+    operator_token = os.getenv("OPERATOR_HEALTH_TOKEN")
+    if not operator_token:
+        pytest.skip("OPERATOR_HEALTH_TOKEN is required for detailed stress preflight")
     try:
-        response = await client.get("/api/health/detailed")
+        response = await client.get(
+            "/api/internal/health/detailed",
+            headers={"X-Operator-Token": operator_token},
+        )
         response.raise_for_status()
     except Exception as exc:  # noqa: BLE001
         pytest.skip(f"Stress backend is unavailable at {_get_base_url()}: {exc}")

@@ -51,3 +51,18 @@ async def test_health_response_contains_no_endpoint(monkeypatch) -> None:
 
     assert "url" not in response.text.lower()
     assert "endpoint" not in response.text.lower()
+
+
+@pytest.mark.asyncio
+async def test_operator_health_is_not_exposed_on_public_paths(monkeypatch) -> None:
+    monkeypatch.setattr(
+        health_api,
+        "get_settings",
+        lambda: SimpleNamespace(app_version="1.0.0", operator_health_token=None),
+    )
+    async with AsyncClient(transport=ASGITransport(app=_app()), base_url="http://test") as client:
+        legacy = await client.get("/api/health/detailed")
+        internal = await client.get("/api/internal/health/detailed")
+
+    assert legacy.status_code == 404
+    assert internal.status_code == 404

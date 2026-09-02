@@ -4,15 +4,15 @@ Validates every (source_type, target_type) pair against the node registry
 using MIME-based type compatibility, structural constraints (max_inputs,
 max_outputs), and node existence checks.
 
-Matrix dimensions: 13 source types x 10 target types = 130 cells.
+Matrix dimensions: 12 source types x 9 target types = 108 cells.
 
 Sources: input/image, input/pdf, input/text, processor/image_enhance,
-         processor/rotate, processor/layout_detection, processor/block_selector,
+         processor/rotate, processor/layout_detection,
          engine/ocr, engine/model, engine/text, engine/markitdown,
          engine/docling, end/final
 
 Targets: processor/image_enhance, processor/rotate, processor/layout_detection,
-         processor/block_selector, engine/ocr, engine/model, engine/text,
+         engine/ocr, engine/model, engine/text,
          engine/markitdown, engine/docling, end/final
 """
 
@@ -74,12 +74,9 @@ def _is_connection_valid(source_type: str, target_type: str) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# 120-cell connection matrix
+# 108-cell connection matrix
 # ---------------------------------------------------------------------------
 # Each tuple: (source_type, target_type, expected_valid)
-#
-# processor/block_selector is not yet registered, so all connections
-# involving it return False (node definition is None).
 #
 # output/markdown is used as the concrete representative for "output/*".
 # ---------------------------------------------------------------------------
@@ -89,7 +86,6 @@ CONNECTION_MATRIX: list[tuple[str, str, bool]] = [
     ("input/image", "processor/image_enhance", True),
     ("input/image", "processor/rotate", True),
     ("input/image", "processor/layout_detection", True),
-    ("input/image", "processor/block_selector", False),  # node not registered
     ("input/image", "engine/ocr", True),
     ("input/image", "engine/model", True),
     ("input/image", "engine/text", False),
@@ -100,7 +96,6 @@ CONNECTION_MATRIX: list[tuple[str, str, bool]] = [
     ("input/pdf", "processor/image_enhance", False),  # pdf ≠ image/*
     ("input/pdf", "processor/rotate", False),
     ("input/pdf", "processor/layout_detection", False),
-    ("input/pdf", "processor/block_selector", False),  # node not registered
     ("input/pdf", "engine/ocr", False),  # pdf ≠ image/*
     ("input/pdf", "engine/model", False),
     ("input/pdf", "engine/text", False),
@@ -111,7 +106,6 @@ CONNECTION_MATRIX: list[tuple[str, str, bool]] = [
     ("input/text", "processor/image_enhance", False),
     ("input/text", "processor/rotate", False),
     ("input/text", "processor/layout_detection", False),
-    ("input/text", "processor/block_selector", False),  # node not registered
     ("input/text", "engine/ocr", False),
     ("input/text", "engine/model", True),  # text/plain matches text port
     ("input/text", "engine/text", True),
@@ -122,7 +116,6 @@ CONNECTION_MATRIX: list[tuple[str, str, bool]] = [
     ("processor/image_enhance", "processor/image_enhance", True),
     ("processor/image_enhance", "processor/rotate", True),
     ("processor/image_enhance", "processor/layout_detection", True),
-    ("processor/image_enhance", "processor/block_selector", False),  # node not registered
     ("processor/image_enhance", "engine/ocr", True),
     ("processor/image_enhance", "engine/model", True),
     ("processor/image_enhance", "engine/text", False),
@@ -137,7 +130,6 @@ CONNECTION_MATRIX: list[tuple[str, str, bool]] = [
     ("processor/rotate", "processor/image_enhance", True),
     ("processor/rotate", "processor/rotate", True),
     ("processor/rotate", "processor/layout_detection", True),
-    ("processor/rotate", "processor/block_selector", False),  # node not registered
     ("processor/rotate", "engine/ocr", True),
     ("processor/rotate", "engine/model", True),
     ("processor/rotate", "engine/text", False),
@@ -148,29 +140,16 @@ CONNECTION_MATRIX: list[tuple[str, str, bool]] = [
     ("processor/layout_detection", "processor/image_enhance", False),
     ("processor/layout_detection", "processor/rotate", False),
     ("processor/layout_detection", "processor/layout_detection", False),
-    ("processor/layout_detection", "processor/block_selector", False),  # node not registered
     ("processor/layout_detection", "engine/ocr", True),  # layout-result accepted
     ("processor/layout_detection", "engine/model", True),  # layout-result accepted
     ("processor/layout_detection", "engine/text", False),
     ("processor/layout_detection", "engine/markitdown", False),
     ("processor/layout_detection", "engine/docling", False),
     ("processor/layout_detection", "end/final", False),
-    # --- processor/block_selector (NOT REGISTERED — all False) ---
-    ("processor/block_selector", "processor/image_enhance", False),
-    ("processor/block_selector", "processor/rotate", False),
-    ("processor/block_selector", "processor/layout_detection", False),
-    ("processor/block_selector", "processor/block_selector", False),
-    ("processor/block_selector", "engine/ocr", False),
-    ("processor/block_selector", "engine/model", False),
-    ("processor/block_selector", "engine/text", False),
-    ("processor/block_selector", "engine/markitdown", False),
-    ("processor/block_selector", "engine/docling", False),
-    ("processor/block_selector", "end/final", False),
     # --- engine/ocr (outputs: text/raw) ---
     ("engine/ocr", "processor/image_enhance", False),
     ("engine/ocr", "processor/rotate", False),
     ("engine/ocr", "processor/layout_detection", False),
-    ("engine/ocr", "processor/block_selector", False),
     ("engine/ocr", "engine/ocr", False),
     ("engine/ocr", "engine/model", True),  # text/raw matches text port
     ("engine/ocr", "engine/text", False),
@@ -181,7 +160,6 @@ CONNECTION_MATRIX: list[tuple[str, str, bool]] = [
     ("engine/model", "processor/image_enhance", False),
     ("engine/model", "processor/rotate", False),
     ("engine/model", "processor/layout_detection", False),
-    ("engine/model", "processor/block_selector", False),
     ("engine/model", "engine/ocr", False),
     ("engine/model", "engine/model", True),  # text/raw matches text port
     ("engine/model", "engine/text", False),
@@ -192,7 +170,6 @@ CONNECTION_MATRIX: list[tuple[str, str, bool]] = [
     ("engine/text", "processor/image_enhance", False),
     ("engine/text", "processor/rotate", False),
     ("engine/text", "processor/layout_detection", False),
-    ("engine/text", "processor/block_selector", False),
     ("engine/text", "engine/ocr", False),
     ("engine/text", "engine/model", True),  # text/raw matches text port
     ("engine/text", "engine/text", False),
@@ -203,7 +180,6 @@ CONNECTION_MATRIX: list[tuple[str, str, bool]] = [
     ("engine/markitdown", "processor/image_enhance", False),
     ("engine/markitdown", "processor/rotate", False),
     ("engine/markitdown", "processor/layout_detection", False),
-    ("engine/markitdown", "processor/block_selector", False),
     ("engine/markitdown", "engine/ocr", False),
     ("engine/markitdown", "engine/model", True),  # text/raw matches text port
     ("engine/markitdown", "engine/text", False),
@@ -214,7 +190,6 @@ CONNECTION_MATRIX: list[tuple[str, str, bool]] = [
     ("engine/docling", "processor/image_enhance", False),
     ("engine/docling", "processor/rotate", False),
     ("engine/docling", "processor/layout_detection", False),
-    ("engine/docling", "processor/block_selector", False),
     ("engine/docling", "engine/ocr", False),
     ("engine/docling", "engine/model", True),  # text/raw matches text port
     ("engine/docling", "engine/text", False),
@@ -225,7 +200,6 @@ CONNECTION_MATRIX: list[tuple[str, str, bool]] = [
     ("end/final", "processor/image_enhance", False),  # max_outputs=0
     ("end/final", "processor/rotate", False),
     ("end/final", "processor/layout_detection", False),
-    ("end/final", "processor/block_selector", False),
     ("end/final", "engine/ocr", False),
     ("end/final", "engine/model", False),
     ("end/final", "engine/text", False),
@@ -236,7 +210,7 @@ CONNECTION_MATRIX: list[tuple[str, str, bool]] = [
 
 
 class TestConnectionMatrix:
-    """Exhaustive 130-cell parametrised matrix test."""
+    """Exhaustive 108-cell parametrised matrix test."""
 
     @pytest.mark.parametrize(
         ("source_type", "target_type", "expected"),
@@ -249,8 +223,8 @@ class TestConnectionMatrix:
             f"Connection {source_type} -> {target_type}: expected {expected}, got {result}"
         )
 
-    def test_matrix_has_130_cells(self) -> None:
-        assert len(CONNECTION_MATRIX) == 130
+    def test_matrix_has_108_cells(self) -> None:
+        assert len(CONNECTION_MATRIX) == 108
 
     def test_matrix_covers_all_source_types(self) -> None:
         sources = {src for src, _, _ in CONNECTION_MATRIX}
@@ -261,7 +235,6 @@ class TestConnectionMatrix:
             "processor/image_enhance",
             "processor/rotate",
             "processor/layout_detection",
-            "processor/block_selector",
             "engine/ocr",
             "engine/model",
             "engine/text",
@@ -277,7 +250,6 @@ class TestConnectionMatrix:
             "processor/image_enhance",
             "processor/rotate",
             "processor/layout_detection",
-            "processor/block_selector",
             "engine/ocr",
             "engine/model",
             "engine/text",
@@ -325,11 +297,6 @@ class TestConnectionMatrixHelperConsistency:
 
 class TestRegistryAssumptions:
     """Guard-rail tests verifying registry data that the matrix depends on."""
-
-    def test_block_selector_not_registered(self) -> None:
-        """An unregistered sentinel node type is absent from the registry."""
-        registry = NodeRegistryService()
-        assert registry.get_node_definition("processor/block_selector") is None
 
     def test_markitdown_accepts_document_types_only(self) -> None:
         """engine/markitdown only accepts document types (pdf, text, html), not image/*."""

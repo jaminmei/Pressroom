@@ -26,6 +26,8 @@ class TestCaseNode(BaseModel):
 
 class TestCase(BaseModel):
     test_case_id: str
+    workspace_id: str
+    created_by_user_id: str
     target_node_id: str
     scope_fingerprint: str
     workflow_fingerprint: str
@@ -67,6 +69,8 @@ class TestExecutionError(BaseModel):
 class TestExecution(BaseModel):
     execution_id: str
     test_case_id: str
+    workspace_id: str
+    created_by_user_id: str
     status: TestExecutionStatus = TestExecutionStatus.pending
     output: dict[str, Any] | None = None
     error: TestExecutionError | None = None
@@ -77,3 +81,4 @@ class TestExecution(BaseModel):
     input_mode: str = "all_upstream"
     bindings: list[dict] = Field(default_factory=list)
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    expires_at: datetime

@@ -1,0 +1,53 @@
+{
+  "name": "agent-settled",
+  "description": "Queued steering keeps the session active after agent_end; only agent_settled marks the session fully idle.",
+  "provenance": {
+    "sdk": { "@earendil-works/pi-coding-agent": "0.84.1" },
+    "sources": [
+      "pi_runtime/src/main.mjs (toJsonEvent delta-only message_update)",
+      "pi_runtime/node_modules/@earendil-works/pi-coding-agent/dist/core/agent-session.d.ts (queue_update, agent_settled)"
+    ]
+  },
+  "raw_events": [
+    { "type": "agent_start" },
+    { "type": "turn_start" },
+    { "type": "message_start", "message": { "id": "u1", "role": "user", "content": [{ "type": "text", "text": "start the audit" }], "timestamp": 1 } },
+    { "type": "message_end", "message": { "id": "u1", "role": "user", "content": [{ "type": "text", "text": "start the audit" }], "timestamp": 1 } },
+    { "type": "message_start", "message": { "id": "a1", "role": "assistant", "content": [], "status": "streaming", "timestamp": 2 } },
+    { "type": "message_update", "assistantMessageEvent": { "type": "text_delta", "contentIndex": 0, "delta": "Starting." } },
+    { "type": "message_end", "message": { "id": "a1", "role": "assistant", "content": [{ "type": "text", "text": "Starting." }], "status": "complete", "stopReason": "stop", "timestamp": 3 } },
+    { "type": "queue_update", "steering": ["also check the tests"], "followUp": [] },
+    { "type": "turn_end" },
+    { "type": "agent_end" },
+    { "type": "turn_start" },
+    { "type": "message_start", "message": { "id": "u2", "role": "user", "content": [{ "type": "text", "text": "also check the tests" }], "timestamp": 4 } },
+    { "type": "message_end", "message": { "id": "u2", "role": "user", "content": [{ "type": "text", "text": "also check the tests" }], "timestamp": 4 } },
+    { "type": "message_start", "message": { "id": "a2", "role": "assistant", "content": [], "status": "streaming", "timestamp": 5 } },
+    { "type": "message_update", "assistantMessageEvent": { "type": "text_delta", "contentIndex": 0, "delta": "Tests pass." } },
+    { "type": "message_end", "message": { "id": "a2", "role": "assistant", "content": [{ "type": "text", "text": "Tests pass." }], "status": "complete", "stopReason": "stop", "timestamp": 6 } },
+    { "type": "turn_end" },
+    { "type": "agent_end" },
+    { "type": "agent_settled" }
+  ],
+  "projected_events": [
+    { "type": "agent_start" },
+    { "type": "turn_start" },
+    { "type": "message_start", "message": { "id": "u1", "role": "user", "content": [{ "type": "text", "text": "start the audit" }], "timestamp": 1 } },
+    { "type": "message_end", "message": { "id": "u1", "role": "user", "content": [{ "type": "text", "text": "start the audit" }], "timestamp": 1 } },
+    { "type": "message_start", "message": { "id": "a1", "role": "assistant", "content": [], "status": "streaming", "timestamp": 2 } },
+    { "type": "message_update", "assistantMessageEvent": { "type": "text_delta", "contentIndex": 0, "delta": "Starting." } },
+    { "type": "message_end", "message": { "id": "a1", "role": "assistant", "content": [{ "type": "text", "text": "Starting." }], "status": "complete", "stopReason": "stop", "timestamp": 3 } },
+    { "type": "queue_update", "steering": ["also check the tests"], "followUp": [] },
+    { "type": "turn_end" },
+    { "type": "agent_end" },
+    { "type": "turn_start" },
+    { "type": "message_start", "message": { "id": "u2", "role": "user", "content": [{ "type": "text", "text": "also check the tests" }], "timestamp": 4 } },
+    { "type": "message_end", "message": { "id": "u2", "role": "user", "content": [{ "type": "text", "text": "also check the tests" }], "timestamp": 4 } },
+    { "type": "message_start", "message": { "id": "a2", "role": "assistant", "content": [], "status": "streaming", "timestamp": 5 } },
+    { "type": "message_update", "assistantMessageEvent": { "type": "text_delta", "contentIndex": 0, "delta": "Tests pass." } },
+    { "type": "message_end", "message": { "id": "a2", "role": "assistant", "content": [{ "type": "text", "text": "Tests pass." }], "status": "complete", "stopReason": "stop", "timestamp": 6 } },
+    { "type": "turn_end" },
+    { "type": "agent_end" },
+    { "type": "agent_settled" }
+  ]
+}

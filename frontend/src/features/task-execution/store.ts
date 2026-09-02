@@ -1,6 +1,6 @@
 import { create } from "zustand";
 
-import type { BlockSelectionRequest, TaskInputFileIdentity, TaskProgress, TaskStatus } from "@/types/task";
+import type { TaskInputFileIdentity, TaskProgress, TaskStatus } from "@/types/task";
 
 export type TaskNodeVisualStatus =
   | "idle"
@@ -31,7 +31,6 @@ export interface TaskExecutionState {
   nodeErrors: Record<string, string | undefined>;
   eventLogs: TaskExecutionLogEntry[];
   progress: TaskProgress | null;
-  blockSelectionRequest: BlockSelectionRequest | null;
   wsWarning: string | null;
   manualReconnectAvailable: boolean;
   executionStartedAt: number | null;
@@ -51,7 +50,6 @@ export interface TaskExecutionState {
   setNodeProgress: (nodeId: string, percentage: number) => void;
   appendEventLog: (message: string, level?: TaskExecutionLogLevel) => void;
   clearEventLogs: () => void;
-  setBlockSelectionRequest: (request: BlockSelectionRequest | null) => void;
   setWsWarning: (warning: string | null) => void;
   setManualReconnectAvailable: (available: boolean) => void;
   setWorkflowPaused: (paused: boolean) => void;
@@ -71,7 +69,6 @@ const initialTaskExecutionState: Pick<
   | "nodeErrors"
   | "eventLogs"
   | "progress"
-  | "blockSelectionRequest"
   | "wsWarning"
   | "manualReconnectAvailable"
   | "executionStartedAt"
@@ -91,7 +88,6 @@ const initialTaskExecutionState: Pick<
   nodeErrors: {},
   eventLogs: [],
   progress: null,
-  blockSelectionRequest: null,
   wsWarning: null,
   manualReconnectAvailable: false,
   executionStartedAt: null,
@@ -161,7 +157,6 @@ export const useTaskExecutionStore = create<TaskExecutionState>((set) => ({
       };
     }),
   clearEventLogs: () => set({ eventLogs: [] }),
-  setBlockSelectionRequest: (request) => set({ blockSelectionRequest: request }),
   setWsWarning: (warning) => set({ wsWarning: warning }),
   setManualReconnectAvailable: (available) => set({ manualReconnectAvailable: available }),
   setWorkflowPaused: (paused) => set({ workflowPaused: paused }),

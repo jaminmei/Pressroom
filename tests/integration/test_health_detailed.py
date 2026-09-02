@@ -9,6 +9,8 @@ from httpx import ASGITransport, AsyncClient
 import app.api.health as health_api
 from app.main import app
 
+OPERATOR_HEADERS = {"X-Operator-Token": "test-operator-health-token"}
+
 
 def _patch_settings(monkeypatch) -> None:
     monkeypatch.setattr(
@@ -22,6 +24,7 @@ def _patch_settings(monkeypatch) -> None:
             layout_detection_engine_url="http://layout-detection:8006",
             image_enhancement_engine_url="http://image-enhancement:8008",
             image_rotation_engine_url="http://image-rotation:8009",
+            operator_health_token="test-operator-health-token",
         ),
     )
 
@@ -78,7 +81,7 @@ async def test_health_detailed_all_healthy(monkeypatch) -> None:
     )
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        response = await client.get("/api/health/detailed")
+        response = await client.get("/api/internal/health/detailed", headers=OPERATOR_HEADERS)
 
     assert response.status_code == 200
     payload = response.json()
@@ -128,7 +131,7 @@ async def test_health_detailed_degraded_when_engine_slow(monkeypatch) -> None:
     )
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        response = await client.get("/api/health/detailed")
+        response = await client.get("/api/internal/health/detailed", headers=OPERATOR_HEADERS)
 
     assert response.status_code == 200
     payload = response.json()
@@ -172,7 +175,7 @@ async def test_health_detailed_unavailable_when_db_down(monkeypatch) -> None:
     )
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        response = await client.get("/api/health/detailed")
+        response = await client.get("/api/internal/health/detailed", headers=OPERATOR_HEADERS)
 
     assert response.status_code == 200
     payload = response.json()
@@ -204,7 +207,7 @@ async def test_health_detailed_serial_mode_returns_null_celery(monkeypatch) -> N
     )
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        response = await client.get("/api/health/detailed")
+        response = await client.get("/api/internal/health/detailed", headers=OPERATOR_HEADERS)
 
     assert response.status_code == 200
     payload = response.json()
@@ -241,7 +244,7 @@ async def test_health_detailed_engine_timeout_becomes_unavailable_without_blocki
     )
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        response = await client.get("/api/health/detailed")
+        response = await client.get("/api/internal/health/detailed", headers=OPERATOR_HEADERS)
 
     assert response.status_code == 200
     payload = response.json()

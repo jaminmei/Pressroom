@@ -16,13 +16,13 @@ import {
   validateWorkflowDefinition
 } from "@/features/workflow-editor/utils/workflowValidator";
 import { buildWorkflowExecutionPayload } from "@/features/workflow-editor/utils/workflowBuilder";
-import { getTaskResults, getTaskStatus, submitBlockSelection } from "@/services/taskApi";
+import { getTaskResults, getTaskStatus } from "@/services/taskApi";
 import {
   buildWorkflowTaskFormData,
   cancelWorkflowTask,
   createWorkflowTask
 } from "@/services/workflowApi";
-import type { SubmitBlockSelectionPayload, TaskStatus } from "@/types/task";
+import type { TaskStatus } from "@/types/task";
 import { computeDagFingerprint } from "@/utils/dagFingerprint";
 import { mapNodeVisualStatus } from "@/utils/nodeStatus";
 import { captureWorkspaceContext, isWorkspaceContextCurrent } from "@/stores/workspaceStore";
@@ -150,7 +150,6 @@ export function useTaskOrchestration() {
 
   const currentTaskId = useTaskExecutionStore((state) => state.currentTaskId);
   const taskStatus = useTaskExecutionStore((state) => state.taskStatus);
-  const blockSelectionRequest = useTaskExecutionStore((state) => state.blockSelectionRequest);
   const setTaskId = useTaskExecutionStore((state) => state.setTaskId);
   const setTaskStatus = useTaskExecutionStore((state) => state.setTaskStatus);
   const setProgress = useTaskExecutionStore((state) => state.setProgress);
@@ -158,7 +157,6 @@ export function useTaskOrchestration() {
   const batchUpdateNodeStatuses = useTaskExecutionStore((state) => state.batchUpdateNodeStatuses);
   const clearEventLogs = useTaskExecutionStore((state) => state.clearEventLogs);
   const appendEventLog = useTaskExecutionStore((state) => state.appendEventLog);
-  const setBlockSelectionRequest = useTaskExecutionStore((state) => state.setBlockSelectionRequest);
   const setSendCommandFn = useTaskExecutionStore((state) => state.setSendCommandFn);
   const setLastRunMeta = useTaskExecutionStore((state) => state.setLastRunMeta);
 
@@ -291,7 +289,6 @@ export function useTaskOrchestration() {
       wsConnected: false,
       wsWarning: null,
       manualReconnectAvailable: false,
-      blockSelectionRequest: null,
       executionStartedAt: null
     }));
 
@@ -421,34 +418,13 @@ export function useTaskOrchestration() {
     if (operationId) finishTaskOperation(operationId);
   }, [appendEventLog, currentTaskId, setTaskStatus, t]);
 
-  const submitNodeInputSelection = useCallback(
-    async (nodeId: string, payload: SubmitBlockSelectionPayload): Promise<boolean> => {
-      if (!currentTaskId) {
-        return false;
-      }
-
-      const workspaceToken = captureWorkspaceContext();
-      await submitBlockSelection(currentTaskId, nodeId, payload);
-      if (
-        !isWorkspaceContextCurrent(workspaceToken) ||
-        useTaskExecutionStore.getState().currentTaskId !== currentTaskId
-      ) return false;
-      setBlockSelectionRequest(null);
-      updateNodeStatus(nodeId, "running");
-      return true;
-    },
-    [currentTaskId, setBlockSelectionRequest, updateNodeStatus]
-  );
-
   return {
     executeWorkflow,
     cancelTask,
-    submitNodeInputSelection,
     manualReconnect,
     isConnected,
     sendCommand,
     currentTaskId,
-    taskStatus,
-    blockSelectionRequest
+    taskStatus
   };
 }

@@ -142,3 +142,52 @@ def test_snapshot_preserves_manual_source_without_evaluation_run(tmp_path: Path)
             await task_run_repo._test_engine.dispose()  # type: ignore[attr-defined]
 
     asyncio.run(_run())
+
+
+def test_snapshot_preserves_workflow_and_file_bindings(tmp_path: Path) -> None:
+    async def _run() -> None:
+        task_run_repo = await _build_repository(tmp_path)
+        try:
+            workflow = {
+                "nodes": [{"id": "input", "type": "input/text", "config": {}}],
+                "connections": [],
+            }
+            input_files = [
+                {
+                    "node_id": "input",
+                    "file_id": "file_123",
+                    "filename": "source.txt",
+                }
+            ]
+            await task_run_repo.upsert_snapshot(
+                task_id="task-retry-snapshot",
+                status="failed",
+                workflow_id="wf-retry",
+                workflow_name="Retry Workflow",
+                source="manual",
+                workspace_id=WORKSPACE_ID,
+                evaluation_run_id=None,
+                created_at=datetime(2026, 3, 4, 12, 0, 0),
+                completed_at=datetime(2026, 3, 4, 12, 0, 1),
+                duration_ms=1000,
+                node_summary={"total": 1, "completed": 0, "failed": 1},
+                result_preview=None,
+                results=None,
+                error="failed",
+                input_files=input_files,
+                workflow=workflow,
+                updated_at=datetime(2026, 3, 4, 12, 0, 1),
+            )
+
+            snapshot = await task_run_repo.get_snapshot(
+                "task-retry-snapshot",
+                workspace_id=WORKSPACE_ID,
+            )
+            assert snapshot is not None
+            assert snapshot.workflow == workflow
+            assert snapshot.input_files == input_files
+            assert snapshot.input_files[0]["file_id"] == "file_123"
+        finally:
+            await task_run_repo._test_engine.dispose()  # type: ignore[attr-defined]
+
+    asyncio.run(_run())

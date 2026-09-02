@@ -7,8 +7,6 @@ from app.main import app
 
 PUBLIC_ROUTES: Final = {
     ("GET", "/api/health"),
-    ("GET", "/api/health/detailed"),
-    ("GET", "/api/health/worker"),
     ("POST", "/api/auth/register"),
     ("POST", "/api/auth/login"),
     ("POST", "/api/auth/logout"),
@@ -58,8 +56,10 @@ def test_protected_routes_advertise_their_auth_scheme() -> None:
             scheme_names = {name for entry in security for name in entry}
             if path.startswith("/api/v1/"):
                 assert scheme_names == {"HTTPBearer"}, key
+            elif path.startswith("/internal/proxy/"):
+                assert scheme_names == {"InternalProxyToken"}, key
             else:
-                assert scheme_names == {"SessionCookie"}, key
+                assert scheme_names == {"AgentSessionTokenBearer", "SessionCookie"}, key
 
 
 def test_application_error_responses_use_canonical_schema_refs() -> None:

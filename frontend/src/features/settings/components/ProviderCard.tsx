@@ -37,14 +37,14 @@ const isVlmCategory = (category: string) => category === "vlm";
 /** Inline status tag for provider title row */
 function InlineStatusBadge({ result }: { result: TestConnectionResponse }) {
   const { t } = useTranslation(["common", "settings"]);
-  if (result.status === "no_health_url") {
+  if (result.status === "unavailable" && result.error_code === "PROVIDER_HEALTH_URL_MISSING") {
     return (
       <Tooltip title={t("settings:noHealthConfigured")}>
         <Tag color="warning" style={{ fontSize: 11 }}>{t("settings:noHealthUrl")}</Tag>
       </Tooltip>
     );
   }
-  if (result.status === "no_models") {
+  if (result.status === "unavailable") {
     return (
       <Tooltip title={t("settings:noModelsConfigured")}>
         <Tag color="warning" style={{ fontSize: 11 }}>{t("settings:noModels")}</Tag>

@@ -111,6 +111,26 @@ ENDPOINT_CASES = (
             }
         ),
     ),
+    EndpointCase("file view", "GET", "/matrix/files/file_1", frozenset(ROLES)),
+    EndpointCase(
+        "file upload",
+        "POST",
+        "/matrix/files",
+        frozenset(
+            {
+                WorkspaceRole.OWNER,
+                WorkspaceRole.ADMIN,
+                WorkspaceRole.EDITOR,
+                WorkspaceRole.RUNNER,
+            }
+        ),
+    ),
+    EndpointCase(
+        "file delete",
+        "DELETE",
+        "/matrix/files/file_1",
+        frozenset({WorkspaceRole.OWNER, WorkspaceRole.ADMIN, WorkspaceRole.EDITOR}),
+    ),
     EndpointCase("dataset view", "GET", "/matrix/test-sets/seed", frozenset(ROLES)),
     EndpointCase(
         "dataset create",
@@ -135,6 +155,19 @@ ENDPOINT_CASES = (
         "run cancel",
         "POST",
         "/matrix/runs/run_1/cancel",
+        frozenset(
+            {
+                WorkspaceRole.OWNER,
+                WorkspaceRole.ADMIN,
+                WorkspaceRole.EDITOR,
+                WorkspaceRole.RUNNER,
+            }
+        ),
+    ),
+    EndpointCase(
+        "comparison refresh",
+        "POST",
+        "/matrix/evaluation-runs/run_1/results/result_1/comparison",
         frozenset(
             {
                 WorkspaceRole.OWNER,
@@ -235,6 +268,24 @@ def _build_matrix_app() -> FastAPI:
         dependencies=[Depends(require_workspace_capability("workflow.run"))],
     )
     router.add_api_route(
+        "/files/file_1",
+        _ok,
+        methods=["GET"],
+        dependencies=[Depends(require_workspace_capability("file.view"))],
+    )
+    router.add_api_route(
+        "/files",
+        _ok,
+        methods=["POST"],
+        dependencies=[Depends(require_workspace_capability("file.upload"))],
+    )
+    router.add_api_route(
+        "/files/file_1",
+        _ok,
+        methods=["DELETE"],
+        dependencies=[Depends(require_workspace_capability("file.delete"))],
+    )
+    router.add_api_route(
         "/test-sets/seed",
         _ok,
         methods=["GET"],
@@ -269,6 +320,12 @@ def _build_matrix_app() -> FastAPI:
         _ok,
         methods=["POST"],
         dependencies=[Depends(require_workspace_capability("run.cancel"))],
+    )
+    router.add_api_route(
+        "/evaluation-runs/run_1/results/result_1/comparison",
+        _ok,
+        methods=["POST"],
+        dependencies=[Depends(require_workspace_capability("comparison.refresh"))],
     )
     router.add_api_route(
         "/providers",

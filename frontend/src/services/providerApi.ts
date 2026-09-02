@@ -9,6 +9,7 @@ import type {
   CreateProviderRequest,
   DiscoverResponse,
   UpdateProviderRequest,
+  ReadinessTestResponse,
   TestConnectionResponse,
   TestModelResponse,
 } from "@/types/provider";
@@ -241,6 +242,13 @@ export async function testModel(
 ): Promise<TestModelResponse> {
   const response = await apiClient.post<TestModelResponse>(
     `/providers/${providerId}/models/${modelId}/test`,
+  );
+  return response.data;
+}
+
+export async function runReadinessTest(providerId: string): Promise<ReadinessTestResponse> {
+  const response = await apiClient.post<ReadinessTestResponse>(
+    `/providers/${providerId}/readiness-test`,
   );
   return response.data;
 }

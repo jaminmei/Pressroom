@@ -23,6 +23,20 @@ def _isolated_database_url(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> N
 
 
 @pytest.fixture
+def file_resource_database() -> None:
+    """Create the durable File tables for focused API tests without a full app lifespan."""
+    from app.db import session as db_session
+    from app.db.base import Base
+
+    db_session._get_engine.cache_clear()
+    db_session._get_session_factory.cache_clear()
+    Base.metadata.create_all(bind=db_session._get_engine())
+    yield
+    db_session._get_session_factory.cache_clear()
+    db_session._get_engine.cache_clear()
+
+
+@pytest.fixture
 def authenticated_workspace_contract(monkeypatch: pytest.MonkeyPatch):
     """Opt-in authenticated owner while retaining production capability checks."""
     from app.main import app

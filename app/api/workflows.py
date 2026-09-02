@@ -6,7 +6,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.api.auth import ResolvedContext, require_workspace_capability
 from app.api.error_response import error_response as build_error_response
@@ -25,6 +25,7 @@ router = APIRouter()
 
 class WorkflowCreateRequest(BaseModel):
     name: str | None = None
+    description: str | None = None
     definition: WorkflowDefinition
 
 
@@ -37,9 +38,24 @@ class WorkflowSaveRequest(BaseModel):
     definition: WorkflowDefinition
 
 
-class WorkflowMetadataUpdateRequest(BaseModel):
-    name: str
+class WorkflowUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str | None = None
     description: str | None = None
+    definition: WorkflowDefinition | None = None
+    base_version: int | None = Field(default=None, ge=1)
+
+    @model_validator(mode="after")
+    def validate_update(self) -> "WorkflowUpdateRequest":
+        mutable_fields = {"name", "description", "definition"}
+        if not self.model_fields_set.intersection(mutable_fields):
+            raise ValueError("At least one mutable workflow field is required")
+        if self.definition is not None and self.base_version is None:
+            raise ValueError("base_version is required when updating a definition")
+        if self.definition is None and "base_version" in self.model_fields_set:
+            raise ValueError("base_version is only valid with a definition update")
+        return self
 
 
 class WorkflowExecuteRequest(BaseModel):
@@ -215,6 +231,7 @@ async def create_workflow(
 
     workflow = get_workflow_store().create(
         name=payload.name,
+        description=payload.description,
         definition=payload.definition,
         actor=_workflow_actor(ctx),
         workspace_id=ctx.workspace_id,
@@ -226,6 +243,8 @@ async def create_workflow(
         content={
             "workflow_id": workflow.id,
             "workflow_key": workflow.workflow_key,
+            "success": True,
+            "data": _serialize_workflow_summary(workflow),
             "validation": {
                 "valid": True,
                 "errors": [],
@@ -248,7 +267,7 @@ async def create_workflow(
 
 # DEPRECATED: Use POST /workflows/publish for the unified publish flow.
 # This endpoint is retained for backward compatibility but will be removed.
-@router.post("/workflows/save", response_model=None)
+@router.post("/workflows/save", response_model=None, deprecated=True)
 async def save_workflow(
     payload: WorkflowSaveRequest,
     request: Request,
@@ -461,35 +480,94 @@ async def get_workflow(
 @router.patch("/workflows/{workflow_id}", response_model=None)
 async def update_workflow_metadata(
     workflow_id: str,
-    payload: WorkflowMetadataUpdateRequest,
+    payload: WorkflowUpdateRequest,
+    request: Request,
     ctx: Annotated[ResolvedContext, Depends(require_workspace_capability("workflow.edit_draft"))],
 ) -> JSONResponse:
-    normalized_name = payload.name.strip()
-    if not normalized_name:
+    store = get_workflow_store()
+    current = store.get(workflow_id, workspace_id=ctx.workspace_id)
+    if current is None:
+        return _error_response(
+            404,
+            ErrorCode.WORKFLOW_NOT_FOUND.value,
+            f"找不到 Workflow：{workflow_id}",
+        )
+
+    normalized_name = payload.name.strip() if payload.name is not None else current.name
+    if payload.name is not None and not normalized_name:
         return _error_response(
             400,
             "WORKFLOW_METADATA_INVALID",
             "Workflow 名稱不可為空",
         )
 
+    normalized_description = current.description
     if "description" in payload.model_fields_set:
         normalized_description = (
-            payload.description.strip() if isinstance(payload.description, str) else None
+            payload.description.strip() or None if isinstance(payload.description, str) else None
         )
-        workflow = get_workflow_store().update(
-            workflow_id,
-            name=normalized_name,
-            description=normalized_description or None,
-            actor=_workflow_actor(ctx),
+
+    warnings: list[dict[str, object]] = []
+    workflow: Workflow | None
+    if payload.definition is not None:
+        normalized_definition = normalize_workflow_definition_for_ingress(payload.definition)
+        validation = get_workflow_validator(request).validate(
+            normalized_definition,
             workspace_id=ctx.workspace_id,
         )
+        if validation.errors:
+            return _error_response(
+                422,
+                "WORKFLOW_VALIDATION_ERROR",
+                "Workflow 定義驗證失敗",
+                details={
+                    "errors": [_issue_payload(error) for error in validation.errors],
+                    "warnings": [_issue_payload(warning) for warning in validation.warnings],
+                },
+            )
+        warnings = [_issue_payload(warning) for warning in validation.warnings]
+        try:
+            workflow = store.save(
+                workflow_id=current.id,
+                workflow_key=current.workflow_key,
+                base_version=payload.base_version,
+                name=normalized_name,
+                description=normalized_description,
+                definition=normalized_definition,
+                actor=_workflow_actor(ctx),
+                workspace_id=ctx.workspace_id,
+            )
+        except WorkflowVersionConflictError as exc:
+            return _error_response(
+                409,
+                ErrorCode.WORKFLOW_VERSION_CONFLICT.value,
+                "目前 workflow 已有較新的 shared saved version，請先重新整理。",
+                details={
+                    "workflow_id": exc.workflow_id,
+                    "workflow_key": exc.workflow_key,
+                    "base_version": exc.base_version,
+                    "latest_version": exc.latest_version,
+                    "current_name": exc.current_name,
+                    "last_saved_by": _actor_payload(exc.last_saved_by),
+                    "updated_at": exc.updated_at.isoformat(),
+                },
+            )
     else:
-        workflow = get_workflow_store().update(
-            workflow_id,
-            name=normalized_name,
-            actor=_workflow_actor(ctx),
-            workspace_id=ctx.workspace_id,
-        )
+        if "description" in payload.model_fields_set:
+            workflow = store.update(
+                workflow_id,
+                name=normalized_name,
+                description=normalized_description,
+                actor=_workflow_actor(ctx),
+                workspace_id=ctx.workspace_id,
+            )
+        else:
+            workflow = store.update(
+                workflow_id,
+                name=normalized_name,
+                actor=_workflow_actor(ctx),
+                workspace_id=ctx.workspace_id,
+            )
     if workflow is None:
         return _error_response(
             404,
@@ -502,25 +580,26 @@ async def update_workflow_metadata(
         content={
             "success": True,
             "data": _serialize_workflow_summary(workflow),
+            "warnings": warnings,
         },
     )
 
 
-@router.get("/workflows/{workflow_key}/versions", response_model=None)
+@router.get("/workflows/{workflow_id}/versions", response_model=None)
 async def list_workflow_versions(
-    workflow_key: str,
+    workflow_id: str,
     ctx: Annotated[ResolvedContext, Depends(require_workspace_capability("workflow.view"))],
 ) -> JSONResponse:
     store = get_workflow_store()
-    workflow = store.get(workflow_key, workspace_id=ctx.workspace_id)
+    workflow = store.get(workflow_id, workspace_id=ctx.workspace_id)
     if workflow is None:
         return _error_response(
             404,
             ErrorCode.WORKFLOW_NOT_FOUND.value,
-            f"找不到 Workflow：{workflow_key}",
+            f"找不到 Workflow：{workflow_id}",
         )
 
-    versions = store.list_versions(workflow_key, workspace_id=ctx.workspace_id)
+    versions = store.list_versions(workflow.id, workspace_id=ctx.workspace_id)
     return JSONResponse(
         status_code=200,
         content={
@@ -615,55 +694,16 @@ async def publish_workflow(
     )
 
 
-@router.post("/workflows/{workflow_key}/restore/{version}", response_model=None)
-async def restore_workflow_version_by_key(
-    workflow_key: str,
-    version: int,
-    ctx: Annotated[ResolvedContext, Depends(require_workspace_capability("workflow.publish"))],
-) -> JSONResponse:
-    store = get_workflow_store()
-    restored = store.restore(
-        workflow_key,
-        version=version,
-        actor=_workflow_actor(ctx),
-        workspace_id=ctx.workspace_id,
-    )
-    if restored is None:
-        workflow = store.get(workflow_key, workspace_id=ctx.workspace_id)
-        if workflow is None:
-            return _error_response(
-                404,
-                ErrorCode.WORKFLOW_NOT_FOUND.value,
-                f"找不到 Workflow：{workflow_key}",
-            )
-        return _error_response(404, "WORKFLOW_VERSION_NOT_FOUND", f"找不到版本：v{version}")
-
-    return JSONResponse(
-        status_code=200,
-        content={
-            "success": True,
-            "data": {
-                "workflow_id": restored.id,
-                "workflow_key": restored.workflow_key,
-                "restored_version": version,
-                "updated_at": restored.updated_at.isoformat(),
-                "latest_version": restored.latest_version,
-                "last_saved_by": _actor_payload(restored.last_saved_by),
-            },
-        },
-    )
-
-
-@router.post("/workflows/{workflow_id}/restore", response_model=None)
-async def restore_workflow(
+async def _restore_workflow_version(
+    *,
     workflow_id: str,
-    payload: WorkflowRestoreRequest,
-    ctx: Annotated[ResolvedContext, Depends(require_workspace_capability("workflow.publish"))],
+    version: int,
+    ctx: ResolvedContext,
 ) -> JSONResponse:
     store = get_workflow_store()
     restored = store.restore(
         workflow_id,
-        version=payload.version,
+        version=version,
         actor=_workflow_actor(ctx),
         workspace_id=ctx.workspace_id,
     )
@@ -675,19 +715,99 @@ async def restore_workflow(
                 ErrorCode.WORKFLOW_NOT_FOUND.value,
                 f"找不到 Workflow：{workflow_id}",
             )
-        return _error_response(404, "WORKFLOW_VERSION_NOT_FOUND", f"找不到版本：v{payload.version}")
+        return _error_response(404, "WORKFLOW_VERSION_NOT_FOUND", f"找不到版本：v{version}")
 
     return JSONResponse(
         status_code=200,
         content={
             "success": True,
             "data": {
-                "workflow_id": workflow_id,
+                "workflow_id": restored.id,
                 "workflow_key": restored.workflow_key,
-                "restored_version": payload.version,
+                "restored_from_version": version,
+                "restored_version": version,
+                "version": restored.latest_version,
                 "updated_at": restored.updated_at.isoformat(),
                 "latest_version": restored.latest_version,
                 "last_saved_by": _actor_payload(restored.last_saved_by),
+            },
+        },
+    )
+
+
+@router.post(
+    "/workflows/{workflow_id}/versions/{version}/restore",
+    response_model=None,
+)
+async def restore_workflow_version(
+    workflow_id: str,
+    version: int,
+    ctx: Annotated[ResolvedContext, Depends(require_workspace_capability("workflow.publish"))],
+) -> JSONResponse:
+    return await _restore_workflow_version(
+        workflow_id=workflow_id,
+        version=version,
+        ctx=ctx,
+    )
+
+
+@router.post(
+    "/workflows/{workflow_key}/restore/{version}",
+    response_model=None,
+    deprecated=True,
+)
+async def restore_workflow_version_by_key(
+    workflow_key: str,
+    version: int,
+    ctx: Annotated[ResolvedContext, Depends(require_workspace_capability("workflow.publish"))],
+) -> JSONResponse:
+    return await _restore_workflow_version(
+        workflow_id=workflow_key,
+        version=version,
+        ctx=ctx,
+    )
+
+
+@router.post("/workflows/{workflow_id}/restore", response_model=None, deprecated=True)
+async def restore_workflow(
+    workflow_id: str,
+    payload: WorkflowRestoreRequest,
+    ctx: Annotated[ResolvedContext, Depends(require_workspace_capability("workflow.publish"))],
+) -> JSONResponse:
+    return await _restore_workflow_version(
+        workflow_id=workflow_id,
+        version=payload.version,
+        ctx=ctx,
+    )
+
+
+@router.get("/workflows/{workflow_id}/deletion-impact", response_model=None)
+async def get_workflow_deletion_impact(
+    workflow_id: str,
+    ctx: Annotated[ResolvedContext, Depends(require_workspace_capability("workflow.publish"))],
+) -> JSONResponse:
+    impact = get_workflow_store().deletion_impact(
+        workflow_id,
+        workspace_id=ctx.workspace_id,
+    )
+    if impact is None:
+        return _error_response(
+            404,
+            ErrorCode.WORKFLOW_NOT_FOUND.value,
+            f"找不到 Workflow：{workflow_id}",
+        )
+    return JSONResponse(
+        status_code=200,
+        content={
+            "workflow_id": impact.workflow_id,
+            "can_delete": impact.can_delete,
+            "references": {
+                "task_runs": impact.task_runs,
+                "active_task_runs": impact.active_task_runs,
+                "evaluation_runs": impact.evaluation_runs,
+                "active_evaluation_runs": impact.active_evaluation_runs,
+                "api_keys": impact.api_keys,
+                "active_api_keys": impact.active_api_keys,
             },
         },
     )
@@ -698,7 +818,27 @@ async def delete_workflow(
     workflow_id: str,
     ctx: Annotated[ResolvedContext, Depends(require_workspace_capability("workflow.publish"))],
 ) -> JSONResponse:
-    deleted = get_workflow_store().delete(workflow_id, workspace_id=ctx.workspace_id)
+    store = get_workflow_store()
+    impact = store.deletion_impact(workflow_id, workspace_id=ctx.workspace_id)
+    if impact is None:
+        return _error_response(
+            404,
+            ErrorCode.WORKFLOW_NOT_FOUND.value,
+            f"找不到 Workflow：{workflow_id}",
+        )
+    if not impact.can_delete:
+        return _error_response(
+            409,
+            "WORKFLOW_IN_USE",
+            "Workflow 仍有 active run、evaluation 或 API key，無法刪除",
+            details={
+                "active_task_runs": impact.active_task_runs,
+                "active_evaluation_runs": impact.active_evaluation_runs,
+                "active_api_keys": impact.active_api_keys,
+            },
+        )
+
+    deleted = store.delete(workflow_id, workspace_id=ctx.workspace_id)
     if not deleted:
         return _error_response(
             404,
@@ -811,7 +951,7 @@ def _compute_definition_dag_hash(definition: WorkflowDefinition) -> str:
     return compute_dag_hash(nodes, edges, node_configs)
 
 
-@router.post("/workflows/publish", response_model=None)
+@router.post("/workflows/publish", response_model=None, deprecated=True)
 async def publish_workflow_unified(
     payload: WorkflowUnifiedPublishRequest,
     request: Request,

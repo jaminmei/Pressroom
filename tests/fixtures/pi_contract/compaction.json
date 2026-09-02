@@ -1,0 +1,39 @@
+{
+  "name": "compaction",
+  "description": "Context compaction with a visible summary, then a successful follow-up turn; session keeps working through compaction and settles only at agent_settled.",
+  "provenance": {
+    "sdk": { "@earendil-works/pi-coding-agent": "0.84.1" },
+    "sources": [
+      "pi_runtime/src/main.mjs (toJsonEvent delta-only message_update)",
+      "pi_runtime/node_modules/@earendil-works/pi-coding-agent/dist/core/agent-session.d.ts (compaction_start/compaction_end, CompactionResult)"
+    ]
+  },
+  "raw_events": [
+    { "type": "compaction_start", "reason": "threshold" },
+    { "type": "compaction_end", "reason": "threshold", "result": { "summary": "Earlier discussion covered project setup and file layout.", "firstKeptEntryId": "e12", "tokensBefore": 90000, "estimatedTokensAfter": 12000 }, "aborted": false, "willRetry": false },
+    { "type": "agent_start" },
+    { "type": "turn_start" },
+    { "type": "message_start", "message": { "id": "u1", "role": "user", "content": [{ "type": "text", "text": "what did we conclude" }], "timestamp": 1 } },
+    { "type": "message_end", "message": { "id": "u1", "role": "user", "content": [{ "type": "text", "text": "what did we conclude" }], "timestamp": 1 } },
+    { "type": "message_start", "message": { "id": "a1", "role": "assistant", "content": [], "status": "streaming", "timestamp": 2 } },
+    { "type": "message_update", "assistantMessageEvent": { "type": "text_delta", "contentIndex": 0, "delta": "We settled on the workspace layout." } },
+    { "type": "message_end", "message": { "id": "a1", "role": "assistant", "content": [{ "type": "text", "text": "We settled on the workspace layout." }], "status": "complete", "stopReason": "stop", "timestamp": 3 } },
+    { "type": "turn_end" },
+    { "type": "agent_end" },
+    { "type": "agent_settled" }
+  ],
+  "projected_events": [
+    { "type": "compaction_start", "reason": "threshold" },
+    { "type": "compaction_end", "reason": "threshold", "result": { "summary": "Earlier discussion covered project setup and file layout." }, "aborted": false, "willRetry": false },
+    { "type": "agent_start" },
+    { "type": "turn_start" },
+    { "type": "message_start", "message": { "id": "u1", "role": "user", "content": [{ "type": "text", "text": "what did we conclude" }], "timestamp": 1 } },
+    { "type": "message_end", "message": { "id": "u1", "role": "user", "content": [{ "type": "text", "text": "what did we conclude" }], "timestamp": 1 } },
+    { "type": "message_start", "message": { "id": "a1", "role": "assistant", "content": [], "status": "streaming", "timestamp": 2 } },
+    { "type": "message_update", "assistantMessageEvent": { "type": "text_delta", "contentIndex": 0, "delta": "We settled on the workspace layout." } },
+    { "type": "message_end", "message": { "id": "a1", "role": "assistant", "content": [{ "type": "text", "text": "We settled on the workspace layout." }], "status": "complete", "stopReason": "stop", "timestamp": 3 } },
+    { "type": "turn_end" },
+    { "type": "agent_end" },
+    { "type": "agent_settled" }
+  ]
+}

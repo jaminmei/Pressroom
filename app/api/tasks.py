@@ -55,7 +55,7 @@ from app.config import get_settings
 from app.core.feature_flags import FeatureFlags
 from app.db.session import SessionLocal
 from app.models.execution import ExecutionEvent, NodeOutput
-from app.models.task import TaskInputFile, TaskResult
+from app.models.task import TaskInputFile, TaskResult, TaskStatus
 from app.models.workflow import WorkflowConnection, WorkflowDefinition, WorkflowNode
 from app.providers.store import ProviderStore
 from app.repositories.task_run_repository import TaskRunRepository, TaskRunSnapshot
@@ -74,7 +74,11 @@ from app.services.workflow_validator import WorkflowValidator
 from app.services.workspace_access import ResolvedContext
 from app.services.ws_manager import WSManager
 from app.storage.local import get_storage
-from app.storage.utils import ensure_path_within_root, ensure_path_within_roots
+from app.storage.utils import (
+    ensure_path_within_root,
+    ensure_path_within_roots,
+    resolve_storage_path,
+)
 from app.utils.workflow_hash import compute_dag_hash
 
 router = APIRouter()
@@ -564,7 +568,8 @@ def _upstream_output_from_events(
     return None
 
 
-@router.post("/tasks", response_model=None)
+@router.post("/workflow-draft-runs", response_model=None)
+@router.post("/tasks", response_model=None, deprecated=True)
 async def create_task(
     request: Request,
     ctx: WorkflowEditDraftContext,
@@ -648,7 +653,9 @@ async def create_task(
                 definition,
                 [
                     {
-                        "storage_path": record.storage_path,
+                        "storage_path": str(
+                            resolve_storage_path(record.storage_path, settings.storage_root)
+                        ),
                         "filename": record.filename,
                         "mime_type": record.mime_type,
                         "size_bytes": record.size_bytes,
@@ -883,7 +890,8 @@ async def create_task(
     )
 
 
-@router.post("/tasks/node-run", response_model=None)
+@router.post("/workflow-draft-runs/node", response_model=None)
+@router.post("/tasks/node-run", response_model=None, deprecated=True)
 async def create_node_run_task(
     request: Request,
     ctx: WorkflowEditDraftContext,
@@ -1035,7 +1043,7 @@ async def create_node_run_task(
         record = store.get_owned(selected_file_id, ctx.workspace_id, ctx.user.id)
         if record is None:
             return await _node_run_error(400, "FILE_NOT_FOUND", f"找不到檔案：{selected_file_id}")
-        resolved_file_path = record.storage_path
+        resolved_file_path = str(resolve_storage_path(record.storage_path, settings.storage_root))
 
     if resolved_file_path is not None:
         for n in node_run_workflow.nodes:
@@ -1942,7 +1950,77 @@ async def retry_workflow(
         workflow = ctx.workflow
         run_id = ctx.run_id
     else:
-        return error_response(404, "TASK_NOT_FOUND", f"找不到任務：{task_id}")
+        snapshot = await _get_workspace_snapshot(
+            get_task_run_repository(),
+            task_id,
+            auth_ctx.workspace_id,
+        )
+        if snapshot is None:
+            return error_response(404, "TASK_NOT_FOUND", f"找不到任務：{task_id}")
+        if snapshot.status not in {"failed", "partial_completed"}:
+            return error_response(
+                409,
+                "RETRY_NOT_ALLOWED",
+                f"任務狀態不允許重試：{snapshot.status}",
+            )
+        if not isinstance(snapshot.workflow, dict):
+            return error_response(
+                409,
+                "RETRY_NOT_AVAILABLE",
+                "此任務缺少可恢復的 workflow snapshot",
+            )
+        try:
+            retry_definition = WorkflowDefinition.model_validate(snapshot.workflow)
+        except ValueError:
+            return error_response(
+                409,
+                "RETRY_NOT_AVAILABLE",
+                "此任務的 workflow snapshot 無法恢復",
+            )
+        retry_file_ids = [
+            str(item["file_id"])
+            for item in (snapshot.input_files or [])
+            if isinstance(item.get("file_id"), str)
+        ]
+        required_inputs = sum(node.type.startswith("input/") for node in retry_definition.nodes)
+        if len(retry_file_ids) < required_inputs:
+            return error_response(
+                409,
+                "RETRY_NOT_AVAILABLE",
+                "此任務缺少可恢復的 File 綁定",
+            )
+        orchestrator = cast(
+            TaskOrchestrator | None,
+            getattr(request.app.state, "task_orchestrator", None),
+        )
+        if orchestrator is None:
+            orchestrator = get_task_orchestrator()
+        try:
+            retried = await orchestrator.create_from_workflow(
+                retry_definition,
+                file_ids=retry_file_ids,
+                workflow_id=snapshot.workflow_id,
+                workflow_name=snapshot.workflow_name,
+                run_name=(f"Retry of {snapshot.run_name}" if snapshot.run_name else None),
+                source="retry",
+                workspace_id=auth_ctx.workspace_id,
+                requested_by_user_id=auth_ctx.user.id,
+            )
+        except ValueError:
+            return error_response(
+                409,
+                "RETRY_NOT_AVAILABLE",
+                "此任務的 File 綁定已不可用",
+            )
+        return JSONResponse(
+            status_code=202,
+            content={
+                "task_id": retried.task_id,
+                "retried_from_task_id": task_id,
+                "status": retried.status.value,
+                "created_at": retried.created_at.isoformat(),
+            },
+        )
 
     # Find all failed nodes from event store
     events = event_store.get_events(run_id)
@@ -2189,6 +2267,53 @@ async def cancel_task(
     running_tasks: dict[str, RunningTaskContext] = request.app.state.running_tasks
     task_run_repository = get_task_run_repository()
 
+    orchestrator = cast(
+        TaskOrchestrator | None,
+        getattr(request.app.state, "task_orchestrator", None),
+    )
+    orchestrated = (
+        orchestrator.get_task(task_id, workspace_id=auth_ctx.workspace_id)
+        if orchestrator is not None
+        else None
+    )
+    if orchestrated is not None:
+        if orchestrated.status == TaskStatus.CANCELLED:
+            return JSONResponse(
+                status_code=200,
+                content={
+                    "task_id": task_id,
+                    "status": "cancelled",
+                    "idempotent": True,
+                },
+            )
+        if orchestrated.status in {
+            TaskStatus.COMPLETED,
+            TaskStatus.PARTIAL_COMPLETED,
+            TaskStatus.FAILED,
+        }:
+            return error_response(
+                409,
+                "CANCEL_NOT_ALLOWED",
+                f"任務已完成，無法取消：{orchestrated.status.value}",
+            )
+        assert orchestrator is not None
+        cancelled = await orchestrator.cancel_task(
+            task_id,
+            workspace_id=auth_ctx.workspace_id,
+        )
+        if cancelled is not None:
+            return JSONResponse(
+                status_code=200,
+                content={
+                    "task_id": task_id,
+                    "status": "cancelled",
+                    "cancelled_at": cancelled.completed_at.isoformat()
+                    if cancelled.completed_at
+                    else None,
+                    "idempotent": False,
+                },
+            )
+
     ctx = running_tasks.get(task_id)
     if ctx is not None and not _matches_workspace(ctx.workspace_id, auth_ctx.workspace_id):
         return error_response(404, "TASK_NOT_FOUND", f"找不到任務：{task_id}")
@@ -2205,7 +2330,43 @@ async def cancel_task(
             return error_response(404, "TASK_NOT_FOUND", f"找不到任務：{task_id}")
         if snapshot is None:
             return error_response(404, "TASK_NOT_FOUND", f"找不到任務：{task_id}")
-        return error_response(409, "CANCEL_NOT_ALLOWED", f"任務已完成，無法取消：{snapshot.status}")
+        if snapshot.status == "cancelled":
+            return JSONResponse(
+                status_code=200,
+                content={
+                    "task_id": task_id,
+                    "status": "cancelled",
+                    "idempotent": True,
+                },
+            )
+        if snapshot.status not in {"pending", "queued", "running"}:
+            return error_response(
+                409,
+                "CANCEL_NOT_ALLOWED",
+                f"任務已完成，無法取消：{snapshot.status}",
+            )
+        cancelled_at = datetime.now(timezone.utc)
+        updated = await task_run_repository.update_status(
+            task_id,
+            status="cancelled",
+            workspace_id=auth_ctx.workspace_id,
+            completed_at=cancelled_at,
+        )
+        if not updated:
+            return error_response(404, "TASK_NOT_FOUND", f"找不到任務：{task_id}")
+        if FeatureFlags.is_queue_mode():
+            from app.worker import celery_app
+
+            celery_app.control.revoke(task_id, terminate=False)
+        return JSONResponse(
+            status_code=200,
+            content={
+                "task_id": task_id,
+                "status": "cancelled",
+                "cancelled_at": cancelled_at.isoformat(),
+                "idempotent": False,
+            },
+        )
 
     # Set cancel flag — scheduler will pick it up on next iteration
     ctx.cancel_requested = True

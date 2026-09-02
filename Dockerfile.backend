@@ -6,7 +6,7 @@ ENV PYTHONUNBUFFERED=1
 WORKDIR /app
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends poppler-utils \
+    && apt-get install -y --no-install-recommends poppler-utils libstdc++6 ripgrep \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.lock /app/requirements.lock
@@ -17,5 +17,7 @@ COPY app /app/app
 COPY alembic /app/alembic
 COPY scripts /app/scripts
 COPY sandbox_protocol /app/sandbox_protocol
+COPY cli /app/cli
+RUN pip install --no-cache-dir --no-deps /app/cli
 
 ENV PYTHONPATH=/app

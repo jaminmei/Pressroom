@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import cast
 from uuid import uuid4
@@ -11,6 +13,10 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import AsyncSessionLocal
+from app.models.db.evaluation_result import EvaluationResult
+from app.models.db.evaluation_run import EvaluationRun
+from app.models.db.ground_truth import GroundTruth
+from app.models.db.storage_cleanup_job import StorageCleanupJob
 from app.models.db.test_document import TestDocument
 from app.models.db.test_set import TestSet
 from app.repositories._workspace_filter import _require_workspace_filter
@@ -20,6 +26,32 @@ SessionFactory = Callable[[], AsyncSession]
 
 def _utcnow_naive() -> datetime:
     return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
+@dataclass(frozen=True, slots=True)
+class TestSetDeletionImpact:
+    test_set_id: str
+    documents: int
+    ground_truth_versions: int
+    evaluation_runs: int
+    active_evaluation_runs: int
+    evaluation_results: int
+
+    @property
+    def can_delete(self) -> bool:
+        return self.active_evaluation_runs == 0
+
+
+@dataclass(frozen=True, slots=True)
+class DocumentDeletionImpact:
+    document_id: str
+    ground_truth_versions: int
+    evaluation_results: int
+    active_evaluation_runs: int
+
+    @property
+    def can_delete(self) -> bool:
+        return self.active_evaluation_runs == 0
 
 
 class TestSetRepository:
@@ -156,7 +188,7 @@ class TestSetRepository:
         document_id: str,
         *,
         workspace_id: str | None = None,
-    ) -> None:
+    ) -> str:
         _require_workspace_filter(workspace_id)
         async with self._session_factory() as session:
             statement = (
@@ -169,10 +201,33 @@ class TestSetRepository:
             if record is None:
                 raise KeyError(document_id)
             test_set_id = record.test_set_id
+            cleanup_job_id = f"scj_{uuid4()}"
+            now = _utcnow_naive()
+            session.add(
+                StorageCleanupJob(
+                    id=cleanup_job_id,
+                    workspace_id=str(workspace_id),
+                    resource_type="test_document",
+                    resource_id=document_id,
+                    payload_json=json.dumps(
+                        {
+                            "test_set_id": test_set_id,
+                            "document_id": document_id,
+                            "storage_path": record.storage_path,
+                        },
+                        separators=(",", ":"),
+                    ),
+                    status="pending",
+                    attempts=0,
+                    created_at=now,
+                    updated_at=now,
+                )
+            )
             await session.delete(record)
             await session.flush()
             await self._refresh_document_count(session, test_set_id, workspace_id=workspace_id)
             await session.commit()
+            return cleanup_job_id
 
     async def update_test_set(
         self,
@@ -197,7 +252,12 @@ class TestSetRepository:
             await session.refresh(record)
             return record
 
-    async def delete_test_set(self, test_set_id: str, *, workspace_id: str | None = None) -> None:
+    async def delete_test_set(
+        self,
+        test_set_id: str,
+        *,
+        workspace_id: str | None = None,
+    ) -> str:
         _require_workspace_filter(workspace_id)
         async with self._session_factory() as session:
             statement = select(TestSet).where(TestSet.id == test_set_id)
@@ -205,8 +265,175 @@ class TestSetRepository:
             record = await session.scalar(statement)
             if record is None:
                 raise KeyError(test_set_id)
+            cleanup_job_id = f"scj_{uuid4()}"
+            now = _utcnow_naive()
+            session.add(
+                StorageCleanupJob(
+                    id=cleanup_job_id,
+                    workspace_id=str(workspace_id),
+                    resource_type="test_set",
+                    resource_id=test_set_id,
+                    payload_json=json.dumps(
+                        {"test_set_id": test_set_id},
+                        separators=(",", ":"),
+                    ),
+                    status="pending",
+                    attempts=0,
+                    created_at=now,
+                    updated_at=now,
+                )
+            )
             await session.delete(record)
             await session.commit()
+            return cleanup_job_id
+
+    async def mark_storage_cleanup_completed(self, cleanup_job_id: str) -> None:
+        async with self._session_factory() as session:
+            record = await session.get(StorageCleanupJob, cleanup_job_id)
+            if record is None:
+                return
+            now = _utcnow_naive()
+            record.status = "completed"
+            record.attempts += 1
+            record.error_code = None
+            record.updated_at = now
+            record.completed_at = now
+            session.add(record)
+            await session.commit()
+
+    async def get_storage_cleanup_job(
+        self,
+        cleanup_job_id: str,
+    ) -> StorageCleanupJob | None:
+        async with self._session_factory() as session:
+            return await session.get(StorageCleanupJob, cleanup_job_id)
+
+    async def list_pending_storage_cleanup_job_ids(self, *, limit: int = 100) -> list[str]:
+        async with self._session_factory() as session:
+            return list(
+                await session.scalars(
+                    select(StorageCleanupJob.id)
+                    .where(StorageCleanupJob.status.in_({"pending", "failed"}))
+                    .order_by(StorageCleanupJob.created_at, StorageCleanupJob.id)
+                    .limit(limit)
+                )
+            )
+
+    async def mark_storage_cleanup_failed(
+        self,
+        cleanup_job_id: str,
+        *,
+        error_code: str,
+    ) -> None:
+        async with self._session_factory() as session:
+            record = await session.get(StorageCleanupJob, cleanup_job_id)
+            if record is None:
+                return
+            record.status = "failed"
+            record.attempts += 1
+            record.error_code = error_code
+            record.updated_at = _utcnow_naive()
+            session.add(record)
+            await session.commit()
+
+    async def get_test_set_deletion_impact(
+        self,
+        test_set_id: str,
+        *,
+        workspace_id: str | None = None,
+    ) -> TestSetDeletionImpact | None:
+        _require_workspace_filter(workspace_id)
+        async with self._session_factory() as session:
+            record = await session.scalar(
+                select(TestSet).where(
+                    TestSet.id == test_set_id,
+                    TestSet.workspace_id == workspace_id,
+                )
+            )
+            if record is None:
+                return None
+            documents = await session.scalar(
+                select(func.count(TestDocument.id)).where(TestDocument.test_set_id == test_set_id)
+            )
+            ground_truth_versions = await session.scalar(
+                select(func.count(GroundTruth.id))
+                .join(TestDocument, TestDocument.id == GroundTruth.document_id)
+                .where(TestDocument.test_set_id == test_set_id)
+            )
+            evaluation_runs = await session.scalar(
+                select(func.count(EvaluationRun.id)).where(
+                    EvaluationRun.test_set_id == test_set_id,
+                    EvaluationRun.workspace_id == workspace_id,
+                )
+            )
+            active_evaluation_runs = await session.scalar(
+                select(func.count(EvaluationRun.id)).where(
+                    EvaluationRun.test_set_id == test_set_id,
+                    EvaluationRun.workspace_id == workspace_id,
+                    EvaluationRun.status.in_(("pending", "queued", "running")),
+                )
+            )
+            evaluation_results = await session.scalar(
+                select(func.count(EvaluationResult.id))
+                .join(EvaluationRun, EvaluationRun.id == EvaluationResult.evaluation_run_id)
+                .where(
+                    EvaluationRun.test_set_id == test_set_id,
+                    EvaluationRun.workspace_id == workspace_id,
+                )
+            )
+            return TestSetDeletionImpact(
+                test_set_id=test_set_id,
+                documents=int(documents or 0),
+                ground_truth_versions=int(ground_truth_versions or 0),
+                evaluation_runs=int(evaluation_runs or 0),
+                active_evaluation_runs=int(active_evaluation_runs or 0),
+                evaluation_results=int(evaluation_results or 0),
+            )
+
+    async def get_document_deletion_impact(
+        self,
+        document_id: str,
+        *,
+        workspace_id: str | None = None,
+    ) -> DocumentDeletionImpact | None:
+        _require_workspace_filter(workspace_id)
+        async with self._session_factory() as session:
+            document = await session.scalar(
+                select(TestDocument)
+                .join(TestSet, TestSet.id == TestDocument.test_set_id)
+                .where(
+                    TestDocument.id == document_id,
+                    TestSet.workspace_id == workspace_id,
+                )
+            )
+            if document is None:
+                return None
+            ground_truth_versions = await session.scalar(
+                select(func.count(GroundTruth.id)).where(GroundTruth.document_id == document_id)
+            )
+            evaluation_results = await session.scalar(
+                select(func.count(EvaluationResult.id)).where(
+                    EvaluationResult.document_id == document_id
+                )
+            )
+            active_evaluation_runs = await session.scalar(
+                select(func.count(EvaluationRun.id))
+                .join(
+                    EvaluationResult,
+                    EvaluationResult.evaluation_run_id == EvaluationRun.id,
+                )
+                .where(
+                    EvaluationResult.document_id == document_id,
+                    EvaluationRun.workspace_id == workspace_id,
+                    EvaluationRun.status.in_(("pending", "queued", "running")),
+                )
+            )
+            return DocumentDeletionImpact(
+                document_id=document_id,
+                ground_truth_versions=int(ground_truth_versions or 0),
+                evaluation_results=int(evaluation_results or 0),
+                active_evaluation_runs=int(active_evaluation_runs or 0),
+            )
 
     async def _refresh_document_count(
         self,

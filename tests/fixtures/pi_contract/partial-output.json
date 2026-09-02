@@ -1,0 +1,37 @@
+{
+  "name": "partial-output",
+  "description": "Bash tool partial results are accumulated snapshots; each partialResult replaces the previous partial rather than appending.",
+  "provenance": {
+    "sdk": { "@earendil-works/pi-coding-agent": "0.84.1" },
+    "sources": [
+      "pi_runtime/src/main.mjs (toJsonEvent delta-only message_update)",
+      "pi_runtime/node_modules/@earendil-works/pi-agent-core/dist/types.d.ts (tool_execution_update)"
+    ]
+  },
+  "raw_events": [
+    { "type": "agent_start" },
+    { "type": "turn_start" },
+    { "type": "message_start", "message": { "id": "a1", "role": "assistant", "content": [{ "type": "toolCall", "toolCallId": "tc-bash", "toolName": "bash", "input": { "command": "npm test" } }], "status": "complete", "stopReason": "toolUse", "timestamp": 1 } },
+    { "type": "message_end", "message": { "id": "a1", "role": "assistant", "content": [{ "type": "toolCall", "toolCallId": "tc-bash", "toolName": "bash", "input": { "command": "npm test" } }], "status": "complete", "stopReason": "toolUse", "timestamp": 1 } },
+    { "type": "tool_execution_start", "toolCallId": "tc-bash", "toolName": "bash", "args": { "command": "npm test" } },
+    { "type": "tool_execution_update", "toolCallId": "tc-bash", "toolName": "bash", "args": { "command": "npm test" }, "partialResult": { "content": [{ "type": "text", "text": "PASS src/a" }], "details": { "truncation": { "truncated": false } } } },
+    { "type": "tool_execution_update", "toolCallId": "tc-bash", "toolName": "bash", "args": { "command": "npm test" }, "partialResult": { "content": [{ "type": "text", "text": "PASS src/a\nPASS src/b" }], "details": { "truncation": { "truncated": false } } } },
+    { "type": "tool_execution_end", "toolCallId": "tc-bash", "toolName": "bash", "result": { "content": [{ "type": "text", "text": "PASS src/a\nPASS src/b\n3 passed" }], "details": { "truncation": { "truncated": false } } }, "isError": false },
+    { "type": "turn_end" },
+    { "type": "agent_end" },
+    { "type": "agent_settled" }
+  ],
+  "projected_events": [
+    { "type": "agent_start" },
+    { "type": "turn_start" },
+    { "type": "message_start", "message": { "id": "a1", "role": "assistant", "content": [{ "type": "toolCall", "toolCallId": "tc-bash", "toolName": "bash", "input": { "command": "npm test" } }], "status": "complete", "stopReason": "toolUse", "timestamp": 1 } },
+    { "type": "message_end", "message": { "id": "a1", "role": "assistant", "content": [{ "type": "toolCall", "toolCallId": "tc-bash", "toolName": "bash", "input": { "command": "npm test" } }], "status": "complete", "stopReason": "toolUse", "timestamp": 1 } },
+    { "type": "tool_execution_start", "toolCallId": "tc-bash", "toolName": "bash", "args": { "command": "npm test" } },
+    { "type": "tool_execution_update", "toolCallId": "tc-bash", "toolName": "bash", "args": { "command": "npm test" }, "partialResult": { "content": [{ "type": "text", "text": "PASS src/a" }], "details": { "truncation": { "truncated": false } } } },
+    { "type": "tool_execution_update", "toolCallId": "tc-bash", "toolName": "bash", "args": { "command": "npm test" }, "partialResult": { "content": [{ "type": "text", "text": "PASS src/a\nPASS src/b" }], "details": { "truncation": { "truncated": false } } } },
+    { "type": "tool_execution_end", "toolCallId": "tc-bash", "toolName": "bash", "result": { "content": [{ "type": "text", "text": "PASS src/a\nPASS src/b\n3 passed" }], "details": { "truncation": { "truncated": false } } }, "isError": false },
+    { "type": "turn_end" },
+    { "type": "agent_end" },
+    { "type": "agent_settled" }
+  ]
+}

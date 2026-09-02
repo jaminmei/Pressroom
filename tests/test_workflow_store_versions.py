@@ -106,7 +106,7 @@ def test_restore_uses_published_version_definition() -> None:
     assert restored.definition.nodes[2].id == "output_1"
 
 
-def test_restore_restores_snapshot_metadata_without_mutating_versions() -> None:
+def test_restore_creates_new_saved_version_without_mutating_source_versions() -> None:
     store = WorkflowStore()
     workflow = store.create(
         name="Workflow v1",
@@ -141,9 +141,10 @@ def test_restore_restores_snapshot_metadata_without_mutating_versions() -> None:
     assert restored.description == version_one_snapshot.description == "original description"
     assert restored.definition == version_one_snapshot.definition
     assert restored.definition is not version_one_snapshot.definition
-    assert restored.latest_version == saved_v2.latest_version == 2
+    assert saved_v2.latest_version == 2
+    assert restored.latest_version == 3
     assert restored.published_version == saved_v2.published_version is None
-    assert len(restored.versions) == 2
+    assert len(restored.versions) == 3
 
     restored.definition.nodes[1].config["encoding"] = "mutated-after-restore"
 
@@ -152,8 +153,8 @@ def test_restore_restores_snapshot_metadata_without_mutating_versions() -> None:
     assert persisted_again.definition.nodes[1].config["encoding"] == "utf-8"
 
     versions_after_restore = store.list_versions(workflow.id, workspace_id=WORKSPACE_ID)
-    assert len(versions_after_restore) == 2
-    assert [item.version for item in versions_after_restore] == [2, 1]
+    assert len(versions_after_restore) == 3
+    assert [item.version for item in versions_after_restore] == [3, 2, 1]
     assert (
         next(item for item in versions_after_restore if item.version == 1).definition
         == version_one_definition_before
@@ -161,4 +162,8 @@ def test_restore_restores_snapshot_metadata_without_mutating_versions() -> None:
     assert (
         next(item for item in versions_after_restore if item.version == 2).definition
         == version_two_definition_before
+    )
+    assert (
+        next(item for item in versions_after_restore if item.version == 3).definition
+        == version_one_definition_before
     )
